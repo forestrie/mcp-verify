@@ -1,0 +1,99 @@
+name: Publish
+
+# Publishes @forestrie/mcp-verify to public npmjs.org via trusted publishing
+# (OIDC): no registry token — npmjs is configured to trust this repo+workflow.
+# Provenance is attested automatically. The FIRST publish of the package must
+# be manual; this workflow handles every subsequent release.
+#
+# Copied from forestrie/mandate .github/workflows/publish-mandate-register.yml,
+# which is the estate's clearest statement of the ref-laundering rationale.
+# Changes, all because this is a single-package repo with root `v*` tags:
+# `tags: ['v*']`, `assert-publish-version.sh .`, `pnpm test` / `pnpm build`
+# instead of `--filter`, and no `working-directory`.
+#
+# Release discipline:
+# - Tags (`v<version>`) are the normal release trigger; workflow_dispatch is
+#   recovery-only. Both run in the `npm-publish` GitHub environment, whose
+#   deployment branch/tag policy allows only `main` and `v*` tags. Paired with
+#   the npm trusted-publisher registration requiring that environment, this
+#   closes ref laundering: a dispatch from an arbitrary ref can no longer
+#   publish with valid provenance.
+# - Actions are SHA-pinned, the npm client is pinned exactly, installs are
+#   frozen-lockfile, and tag<->package.json version agreement is asserted
+#   before anything is built (scripts/assert-publish-version.sh).
+#
+# Pattern notes:
+# - `id-token: write` is required for the OIDC exchange.
+# - Trusted publishing needs npm >= 11.5.1; node 22 ships npm 10, so we
+#   upgrade npm explicitly.
+# - Pack with pnpm, publish the tarball with npm (the OIDC exchange is npm's).
+# - `pnpm test` runs BEFORE build, and it chains check:browser-safe and
+#   check:encoding-single-copy, so a purity regression cannot be published.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+# No workflow-level permissions: grant the minimum at job level.
+permissions: {}
+
+jobs:
+  publish:
+    name: Publish @forestrie/mcp-verify
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: read # checkout only
+      id-token: write # OIDC exchange for npm trusted publishing
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Setup pnpm
+        # No `version:` input — `packageManager` in package.json declares it,
+        # and passing both is an error.
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.14.0
+          registry-url: https://registry.npmjs.org
+          scope: "@forestrie"
+          cache: pnpm
+
+      - name: Upgrade npm for trusted publishing
+        # Pinned to an exact version (not a floating `npm@11`) so the release
+        # path is reproducible and cannot pick up a brand-new client at
+        # release time. Trusted publishing needs npm >= 11.5.1; npm@12
+        # requires a newer node than the pinned 22.14.0 toolchain.
+        run: |
+          npm install -g npm@11.18.0
+          npm --version
+
+      - name: Assert publish version discipline
+        # Tag builds: the tag must name exactly the package.json version.
+        # Dispatch (recovery) builds: the version must not already be on the
+        # registry. Fails before build/publish.
+        run: ./scripts/assert-publish-version.sh .
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test
+        # Chains check:browser-safe && check:encoding-single-copy before
+        # vitest. This is what makes both purity gates release gates.
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Publish to npmjs (trusted publishing)
+        # --provenance is explicit as well as set in publishConfig, so a
+        # silent regression is impossible.
+        run: |
+          pnpm pack
+          npm publish --provenance ./forestrie-mcp-verify-*.tgz
