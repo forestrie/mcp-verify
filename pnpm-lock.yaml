@@ -21,6 +21,9 @@ importers:
         specifier: ^4.5.4
         version: 4.5.4
     devDependencies:
+      '@forestrie/merklelog':
+        specifier: 0.3.0
+        version: 0.3.0
       '@types/node':
         specifier: ^22.14.0
         version: 22.20.1

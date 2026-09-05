@@ -1,0 +1,466 @@
+/**
+ * CBOR → JSON rendering of a receipt. No verification, no network, no files.
+ *
+ * Everything on the Forestrie wire is CBOR, and nothing published renders it.
+ * `@forestrie/receipt-verify` exports `parseReceipt`, which does the
+ * load-bearing structural parse (COSE_Sign1 shape, tag-18 tolerance, payload
+ * rules, header 396 inclusion proof) but leaves the protected header as the
+ * opaque signed bstr it must be. This module turns that result into a display
+ * model: protected-header contents, named labels, JSON-safe values.
+ *
+ * ## Where this came from, and where it should go
+ *
+ * `forestrie-cli` has a renderer (`src/lib/decode-receipt-{decode,cbor,labels}.ts`)
+ * and the output shape and label registry below are modelled on it, so that
+ * `test/differential/` can compare this against `forestrie decode-receipt --json`.
+ * But that CLI is `private: true` and ships only as compiled binaries, so
+ * there is nothing to depend on — and copying 667 lines of someone else's
+ * source into this tree would buy differential exactness at the price of a
+ * silent fork. This is written fresh over the published packages only:
+ * `parseReceipt` from `@forestrie/receipt-verify`, and
+ * `decodeCborDeterministic` / `coseUnprotectedToMap` / `decodeCoseSign1` /
+ * `CborTag` from `@forestrie/encoding@0.7.0`.
+ *
+ * **The long-term fix is not here.** `forestrie-cli` should publish its decode
+ * renderer as a library, and when it does, this file should be deleted and
+ * replaced by that dependency. Until then the differential test is what keeps
+ * the two honest, and `docs/differential-test.md` records every place they
+ * disagree and why.
+ *
+ * ## One deliberate behavioural difference
+ *
+ * The reference renderer decodes the protected header with its own lenient
+ * CBOR reader. This one uses `decodeCborDeterministic`, which rejects
+ * indefinite lengths, floats, non-canonical encodings and trailing bytes. A
+ * receipt whose protected header is not RFC 8949 §4.2 canonical renders in the
+ * CLI and is refused here. That is the right way round for a tamper-evidence
+ * tool — the signed bytes are supposed to be canonical, and quietly rendering
+ * bytes the verifier would reject is how a decoder becomes misleading.
+ */
+import { parseReceipt } from "@forestrie/receipt-verify";
+import {
+  CborTag,
+  coseUnprotectedToMap,
+  decodeCborDeterministic,
+  decodeCoseSign1,
+} from "@forestrie/encoding";
+
+/* ------------------------------------------------------------------ *
+ * Label registry. Naming only: decoding never requires a label to be
+ * known, and an unknown label is always shown raw, never dropped.
+ *
+ * Sources: RFC 9052 (COSE headers), RFC 9597 (CWT claims header 15),
+ * RFC 8392 (CWT claim keys), RFC 8747 (cnf),
+ * draft-ietf-cose-merkle-tree-proofs (395 vds / 396 verifiable proofs),
+ * and the forestrie private-use labels.
+ * ------------------------------------------------------------------ */
+
+/** CBOR tag for COSE_Sign1 (RFC 9052 §2). */
+export const COSE_SIGN1_TAG = 18;
+/** Verifiable data structure, protected (draft-ietf-cose-merkle-tree-proofs). */
+export const VDS_LABEL = 395;
+/** Verifiable proofs, unprotected (draft-ietf-cose-merkle-tree-proofs). */
+export const VERIFIABLE_PROOFS_LABEL = 396;
+/** CWT claims in a COSE header (RFC 9597). */
+export const CWT_CLAIMS_LABEL = 15;
+/** Custodian per-log delegation certificate, a nested COSE_Sign1. */
+export const DELEGATION_CERT_LABEL = 1000;
+/** Pre-signed peak inclusion receipts on a checkpoint. */
+export const SEAL_PEAK_RECEIPTS_LABEL = -65931;
+
+export type LabelInfo = { name: string; note?: string };
+
+const HEADER_LABELS: ReadonlyMap<number, LabelInfo> = new Map([
+  [1, { name: "alg" }],
+  [2, { name: "crit" }],
+  [3, { name: "content type" }],
+  [4, { name: "kid" }],
+  [5, { name: "IV" }],
+  [6, { name: "partial IV" }],
+  [CWT_CLAIMS_LABEL, { name: "CWT claims", note: "RFC 9597" }],
+  [
+    VDS_LABEL,
+    { name: "verifiable data structure", note: "COSE receipts (draft)" },
+  ],
+  [
+    VERIFIABLE_PROOFS_LABEL,
+    { name: "verifiable proofs", note: "COSE receipts (draft)" },
+  ],
+  [
+    DELEGATION_CERT_LABEL,
+    {
+      name: "delegation certificate",
+      note: "forestrie: Custodian per-log delegation (nested COSE_Sign1)",
+    },
+  ],
+  [-65537, { name: "idtimestamp", note: "forestrie private-use" }],
+  [-65538, { name: "forestrie grant v0", note: "forestrie private-use" }],
+  [
+    SEAL_PEAK_RECEIPTS_LABEL,
+    {
+      name: "pre-signed peak receipts",
+      note: "forestrie SealPeakReceiptsLabel (checkpoint header)",
+    },
+  ],
+  [-65801, { name: "session key endorsement", note: "forestrie private-use" }],
+  [-68009, { name: "forest genesis version", note: "forestrie private-use" }],
+  [-68011, { name: "univocity address", note: "forestrie private-use" }],
+  [-68013, { name: "chain id", note: "forestrie private-use" }],
+  [-68014, { name: "forest genesis alg", note: "forestrie private-use" }],
+  [-68015, { name: "bootstrap key", note: "forestrie private-use" }],
+]);
+
+const ALG_NAMES: ReadonlyMap<number, string> = new Map([
+  [-7, "ES256 (ECDSA P-256 + SHA-256)"],
+  [-8, "EdDSA"],
+  [-35, "ES384"],
+  [-36, "ES512"],
+  [-65799, "KS256 (secp256k1 + Keccak-256, forestrie private-use)"],
+  [-65800, "ES256-WebAuthn (forestrie private-use)"],
+]);
+
+/**
+ * Verifiable data structure ids. 3 is NOT a registered codepoint:
+ * draft-bryce-cose-receipts-mmr-profile requests TBD, and 3 is only the value
+ * the test fixtures use. Render it as the draft's unregistered codepoint,
+ * never as registry fact.
+ */
+const VDS_NAMES: ReadonlyMap<number, string> = new Map([
+  [1, "RFC9162_SHA256 (Certificate Transparency)"],
+  [2, "CCF_LEDGER_SHA256"],
+  [3, "MMR profile (draft-bryce, codepoint TBD)"],
+]);
+
+const CWT_CLAIM_NAMES: ReadonlyMap<number, string> = new Map([
+  [1, "iss"],
+  [2, "sub"],
+  [3, "aud"],
+  [4, "exp"],
+  [5, "nbf"],
+  [6, "iat"],
+  [7, "cti"],
+  [8, "cnf (confirmation / ephemeral key)"],
+]);
+
+const COSE_KEY_PARAM_NAMES: ReadonlyMap<number, string> = new Map([
+  [1, "kty"],
+  [2, "kid"],
+  [3, "alg"],
+  [-1, "crv"],
+  [-2, "x"],
+  [-3, "y"],
+]);
+
+/* ------------------------------------------------------------------ *
+ * Display model
+ * ------------------------------------------------------------------ */
+
+/** Which parse stage rejected the input. */
+export type DecodeReceiptStage =
+  | "input"
+  | "envelope"
+  | "cose-sign1"
+  | "payload"
+  | "protected-header"
+  | "inclusion-proof";
+
+export class DecodeReceiptError extends Error {
+  readonly stage: DecodeReceiptStage;
+  constructor(stage: DecodeReceiptStage, message: string) {
+    super(message);
+    this.name = "DecodeReceiptError";
+    this.stage = stage;
+  }
+}
+
+/** JSON-safe value: bytes become `h'…'` diagnostic-notation strings. */
+export type Json =
+  string | number | boolean | null | Json[] | { [key: string]: Json };
+
+export type DecodedHeaderEntry = {
+  /** Raw CBOR label (int, or string for text keys). */
+  label: number | string;
+  /** Registry name, or null when unknown (the value is still shown). */
+  name: string | null;
+  note: string | null;
+  value: Json;
+};
+
+export type DecodedClaim = {
+  key: number | string;
+  name: string | null;
+  value: Json;
+};
+
+export type DecodedReceipt = {
+  byteLength: number;
+  /** Outer CBOR tag (18 for COSE_Sign1) or null when untagged. */
+  tag: number | null;
+  protected: {
+    byteLength: number;
+    alg: { value: number; name: string | null } | null;
+    kid: { hex: string; byteLength: number } | { text: string } | null;
+    vds: { value: number; name: string | null } | null;
+    cwtClaims: DecodedClaim[] | null;
+    entries: DecodedHeaderEntry[];
+  };
+  unprotected: {
+    entries: DecodedHeaderEntry[];
+    delegation: { byteLength: number; nestedCoseSign1: boolean } | null;
+    peakReceipts: { count: number } | null;
+  };
+  payload:
+    { detached: true } | { detached: false; byteLength: number; hex: string };
+  signature: { byteLength: number; hex: string };
+  /** MMR inclusion proof summary (header 396, key -1). */
+  inclusion: {
+    mmrIndex: string;
+    pathLength: number;
+    path: string[];
+    /** 32-byte peak when the payload is attached; null when detached. */
+    peakHex: string | null;
+    peakSource: "payload" | "derived at verify time (detached payload)";
+  };
+};
+
+const HEX = Array.from({ length: 256 }, (_, i) =>
+  i.toString(16).padStart(2, "0"),
+);
+
+export function bytesToHex(bytes: Uint8Array): string {
+  let out = "";
+  for (const b of bytes) out += HEX[b];
+  return out;
+}
+
+/** Any decoded CBOR value → JSON-safe display form. */
+export function toJson(value: unknown): Json {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "boolean" || typeof value === "string") return value;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : String(value);
+  }
+  if (typeof value === "bigint") {
+    return value >= BigInt(Number.MIN_SAFE_INTEGER) &&
+      value <= BigInt(Number.MAX_SAFE_INTEGER)
+      ? Number(value)
+      : value.toString(10);
+  }
+  if (value instanceof Uint8Array) return `h'${bytesToHex(value)}'`;
+  if (Array.isArray(value)) return value.map(toJson);
+  if (value instanceof Map) {
+    const out: { [key: string]: Json } = {};
+    for (const [k, v] of value) out[String(toJson(k))] = toJson(v);
+    return out;
+  }
+  if (value instanceof CborTag) {
+    return { tag: value.tag, value: toJson(value.value) };
+  }
+  if (typeof value === "object") {
+    const out: { [key: string]: Json } = {};
+    for (const [k, v] of Object.entries(value)) out[k] = toJson(v);
+    return out;
+  }
+  return String(value);
+}
+
+function numericLabel(key: unknown): number | string {
+  if (typeof key === "number") return key;
+  if (typeof key === "bigint") return Number(key);
+  const n = Number(key);
+  return Number.isFinite(n) ? n : String(key);
+}
+
+function headerEntry(key: unknown, value: unknown): DecodedHeaderEntry {
+  const label = numericLabel(key);
+  const info =
+    typeof label === "number" ? (HEADER_LABELS.get(label) ?? null) : null;
+  return {
+    label,
+    name: info?.name ?? null,
+    note: info?.note ?? null,
+    value: toJson(value),
+  };
+}
+
+function decodeCwtClaims(claims: unknown): DecodedClaim[] {
+  if (!(claims instanceof Map)) {
+    return [{ key: "(malformed)", name: null, value: toJson(claims) }];
+  }
+  const out: DecodedClaim[] = [];
+  for (const [k, v] of claims) {
+    const key = numericLabel(k);
+    const name =
+      typeof key === "number" ? (CWT_CLAIM_NAMES.get(key) ?? null) : null;
+    // cnf (8) carries key material — name the COSE_Key params for the reader.
+    if (key === 8 && v instanceof Map) {
+      const cnf: { [param: string]: Json } = {};
+      for (const [pk, pv] of v) {
+        const paramKey = numericLabel(pk);
+        const paramName =
+          typeof paramKey === "number"
+            ? COSE_KEY_PARAM_NAMES.get(paramKey)
+            : undefined;
+        cnf[
+          paramName !== undefined
+            ? `${paramKey} (${paramName})`
+            : String(paramKey)
+        ] = toJson(pv);
+      }
+      out.push({ key, name, value: cnf });
+      continue;
+    }
+    out.push({ key, name, value: toJson(v) });
+  }
+  return out;
+}
+
+/** Classify a `parseReceipt` failure by the stage that rejected the input. */
+function classifyParseError(error: unknown): DecodeReceiptError {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/COSE Sign1/i.test(message)) {
+    return new DecodeReceiptError("cose-sign1", message);
+  }
+  if (/payload/i.test(message)) {
+    return new DecodeReceiptError("payload", message);
+  }
+  if (/header 396|proof/i.test(message)) {
+    return new DecodeReceiptError("inclusion-proof", message);
+  }
+  return new DecodeReceiptError("envelope", message);
+}
+
+/**
+ * Decode receipt bytes to the display model.
+ *
+ * Only receipts: a checkpoint (`.sth`) carries a consistency proof at header
+ * 396 key -2 rather than an inclusion proof at key -1, and `parseReceipt`
+ * rejects it. That surfaces here as a `DecodeReceiptError` with
+ * `stage: "inclusion-proof"`, which is honest — this is a receipt decoder.
+ *
+ * @throws {DecodeReceiptError} naming the parse stage on malformed input
+ */
+export function decodeReceipt(receiptBytes: Uint8Array): DecodedReceipt {
+  if (receiptBytes.length === 0) {
+    throw new DecodeReceiptError("input", "receipt is empty (0 bytes)");
+  }
+
+  // Tag tolerance: parseReceipt accepts tagged and untagged; record which we
+  // got. Tag 18 with a 1-byte argument encodes as the initial byte 0xd2.
+  const tag = receiptBytes[0] === 0xd2 ? COSE_SIGN1_TAG : null;
+
+  let parsed: ReturnType<typeof parseReceipt>;
+  try {
+    parsed = parseReceipt(receiptBytes);
+  } catch (error) {
+    throw classifyParseError(error);
+  }
+  const [protectedBstr, unprotectedRaw, payload, signature] = parsed.coseSign1;
+
+  // The protected header is the SIGNED bytes; parseReceipt keeps it opaque
+  // deliberately. Open it here for display only — nothing downstream of this
+  // function feeds a verification decision.
+  let protectedMap: Map<unknown, unknown>;
+  try {
+    const decoded = decodeCborDeterministic(protectedBstr);
+    if (!(decoded instanceof Map)) {
+      throw new Error(
+        `expected a CBOR map, got ${decoded === null ? "null" : typeof decoded}`,
+      );
+    }
+    protectedMap = decoded;
+  } catch (error) {
+    throw new DecodeReceiptError(
+      "protected-header",
+      `protected header is not a canonical CBOR map: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+
+  let alg: DecodedReceipt["protected"]["alg"] = null;
+  let kid: DecodedReceipt["protected"]["kid"] = null;
+  let vds: DecodedReceipt["protected"]["vds"] = null;
+  let cwtClaims: DecodedClaim[] | null = null;
+  const protectedEntries: DecodedHeaderEntry[] = [];
+  for (const [k, v] of protectedMap) {
+    protectedEntries.push(headerEntry(k, v));
+    const label = numericLabel(k);
+    if (label === 1 && (typeof v === "number" || typeof v === "bigint")) {
+      const value = Number(v);
+      alg = { value, name: ALG_NAMES.get(value) ?? null };
+    } else if (label === 4) {
+      if (v instanceof Uint8Array) {
+        kid = { hex: bytesToHex(v), byteLength: v.length };
+      } else if (typeof v === "string") {
+        kid = { text: v };
+      }
+    } else if (
+      label === VDS_LABEL &&
+      (typeof v === "number" || typeof v === "bigint")
+    ) {
+      const value = Number(v);
+      vds = { value, name: VDS_NAMES.get(value) ?? null };
+    } else if (label === CWT_CLAIMS_LABEL) {
+      cwtClaims = decodeCwtClaims(v);
+    }
+  }
+
+  const unprotectedMap = coseUnprotectedToMap(unprotectedRaw);
+  const unprotectedEntries: DecodedHeaderEntry[] = [];
+  let delegation: DecodedReceipt["unprotected"]["delegation"] = null;
+  let peakReceipts: DecodedReceipt["unprotected"]["peakReceipts"] = null;
+  for (const [label, value] of unprotectedMap) {
+    unprotectedEntries.push(headerEntry(label, value));
+    if (label === DELEGATION_CERT_LABEL && value instanceof Uint8Array) {
+      delegation = {
+        byteLength: value.length,
+        nestedCoseSign1: decodeCoseSign1(value) !== null,
+      };
+    } else if (label === SEAL_PEAK_RECEIPTS_LABEL && Array.isArray(value)) {
+      peakReceipts = { count: value.length };
+    }
+  }
+
+  const path = parsed.proof.path.map(bytesToHex);
+  const peakHex =
+    parsed.explicitPeak !== null ? bytesToHex(parsed.explicitPeak) : null;
+
+  return {
+    byteLength: receiptBytes.length,
+    tag,
+    protected: {
+      byteLength: protectedBstr.length,
+      alg,
+      kid,
+      vds,
+      cwtClaims,
+      entries: protectedEntries,
+    },
+    unprotected: {
+      entries: unprotectedEntries,
+      delegation,
+      peakReceipts,
+    },
+    payload:
+      payload instanceof Uint8Array
+        ? {
+            detached: false,
+            byteLength: payload.length,
+            hex: bytesToHex(payload),
+          }
+        : { detached: true },
+    signature: { byteLength: signature.length, hex: bytesToHex(signature) },
+    inclusion: {
+      // parseReceipt always sets mmrIndex; merklelog's Proof marks it optional.
+      mmrIndex: (parsed.proof.mmrIndex ?? 0n).toString(10),
+      pathLength: path.length,
+      path,
+      peakHex,
+      peakSource:
+        peakHex !== null
+          ? "payload"
+          : "derived at verify time (detached payload)",
+    },
+  };
+}

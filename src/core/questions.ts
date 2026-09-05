@@ -1,0 +1,262 @@
+/**
+ * D3's rung → four-questions mapping, plus the collapse diagnostic.
+ *
+ * The mapping is rung-dependent, and that is the entire point of the Auditor:
+ * the same bytes answer more questions at a higher rung, and the tool says
+ * which — never a bare "valid".
+ *
+ * | Rung                              | sealing  | split-view       | authority | attribution |
+ * |-----------------------------------|----------|------------------|-----------|-------------|
+ * | genesis / known-log-key           | answered | NOT answered     | grant only| answered    |
+ * | known-accumulator / checkpoint-…  | answered | answered         | grant only| answered    |
+ *
+ * "NOT answered" at the lower two rungs is not a hedge. With a
+ * detached-payload receipt the signature covers the MMR peak, which is only
+ * knowable after recomputing it from leaf + path — so a bad path and a bad
+ * signature are literally the same observation, and no amount of care can
+ * separate them without an independent accumulator to check the peak against.
+ * That is `detached_payload_stage_collapse`.
+ */
+import type {
+  Diagnostic,
+  QuestionAnswer,
+  QuestionStatus,
+  TrustQuestions,
+} from "./result.js";
+import type { RungName } from "./rung.js";
+import { rungAnswersSplitView } from "./rung.js";
+
+/** Which receipt kind was verified — decides the `authority` answer. */
+export type ReceiptKind = "payload" | "grant";
+
+export type QuestionsInput = {
+  rung: RungName;
+  kind: ReceiptKind;
+  /** The mechanical verdict of the arithmetic that actually ran. */
+  ok: boolean;
+  /** The stage the arithmetic stopped at. */
+  stage: string;
+  /** True when the receipt's COSE payload is detached (null) — the condition
+   *  that makes the stage collapse possible at all. */
+  detachedPayload: boolean;
+  /** Set only at the accumulator/checkpoint rungs: did the recomputed peak
+   *  match a trusted accumulator? `undefined` means the check never ran. */
+  anchored?: boolean | undefined;
+};
+
+const NOT_ANSWERED: QuestionStatus = "not_answered_at_this_rung";
+
+const RUNG_ANCHOR_NOTE: Record<RungName, string> = {
+  genesis: "trust root derived from the log's genesis document",
+  "known-log-key": "trust root is a log owner key you supplied out of band",
+  "known-accumulator":
+    "trust root is a caller-held on-chain accumulator snapshot",
+  "checkpoint-chain":
+    "trust root is a retained checkpoint chain folded from its base",
+};
+
+function answer(status: QuestionStatus, note: string): QuestionAnswer {
+  return { status, note };
+}
+
+/**
+ * `sealing` — did the log operator's signature hold?
+ *
+ * Answered at every rung, but by two different arguments. At genesis and
+ * known-log-key it is a local COSE check. At the accumulator rungs no
+ * signature is re-checked locally; the answer comes from the contract, which
+ * refuses to publish a checkpoint whose signature does not verify. Both are
+ * real answers; the note says which one you got.
+ */
+function sealing(input: QuestionsInput): QuestionAnswer {
+  const anchoredRung = rungAnswersSplitView(input.rung);
+  if (input.ok) {
+    return answer(
+      "ok",
+      anchoredRung
+        ? "implied by the anchor: univocity rejects a checkpoint whose signature does not verify"
+        : "checkpoint signature verified locally under the rung's trust root",
+    );
+  }
+  if (input.stage === "parse") {
+    return answer(
+      NOT_ANSWERED,
+      "the receipt did not decode, so no signature was reached",
+    );
+  }
+  if (anchoredRung) {
+    return answer(
+      "failed",
+      "the recomputed peak is not in the trusted accumulator, so no valid publishing signature covers this receipt",
+    );
+  }
+  return answer(
+    "failed",
+    input.detachedPayload
+      ? "the signature over the recomputed peak did not verify — see the stage-collapse diagnostic"
+      : "the checkpoint signature did not verify under the rung's trust root",
+  );
+}
+
+/**
+ * `split-view` — is this the same log everyone else sees?
+ *
+ * The one question the ladder is really about. Only an accumulator the caller
+ * trusts independently of the log operator can answer it.
+ */
+function splitView(input: QuestionsInput): QuestionAnswer {
+  if (!rungAnswersSplitView(input.rung)) {
+    return answer(
+      NOT_ANSWERED,
+      "no independent accumulator at this rung: a log that showed you a private branch would verify exactly like this one",
+    );
+  }
+  if (input.stage === "parse") {
+    return answer(
+      NOT_ANSWERED,
+      "the receipt did not decode, so no peak was recomputed to compare",
+    );
+  }
+  if (input.anchored === true || (input.anchored === undefined && input.ok)) {
+    return answer(
+      "ok",
+      "the recomputed peak is one of the peaks in the accumulator you trust",
+    );
+  }
+  return answer(
+    "failed",
+    "the recomputed peak is NOT in the accumulator you trust — this receipt does not describe the log you anchored to",
+  );
+}
+
+/**
+ * `authority` — was the signer entitled to write to this log?
+ *
+ * Answered by `verify_grant_receipt`, whose leaf IS a grant: verifying the
+ * receipt verifies that this grant was committed. `verify_receipt` verifies a
+ * payload leaf and walks no grant chain, so it must say so rather than let a
+ * reader assume.
+ */
+function authority(input: QuestionsInput): QuestionAnswer {
+  if (input.kind !== "grant") {
+    return answer(
+      NOT_ANSWERED,
+      "verify_receipt checks a payload leaf and walks no grant chain; use verify_grant_receipt for the authority question",
+    );
+  }
+  if (input.stage === "parse") {
+    return answer(
+      NOT_ANSWERED,
+      "the receipt did not decode, so the committed grant was never reached",
+    );
+  }
+  return input.ok
+    ? answer(
+        "ok",
+        "the leaf commits exactly the grant you supplied, so that grant was admitted to this log",
+      )
+    : answer(
+        "failed",
+        "the leaf does not commit the grant you supplied at this idtimestamp",
+      );
+}
+
+/**
+ * `attribution` — who was authorised to sign THIS leaf?
+ *
+ * Answered from the leaf bytes on the endorsed-leaf path: the leaf commits
+ * `SHA-256(idtimestamp ‖ SHA-256(payload))`, so a passing binding stage says
+ * the exact bytes you hold were sequenced at the exact idtimestamp you
+ * claimed. Nothing weaker, and nothing stronger.
+ */
+function attribution(input: QuestionsInput): QuestionAnswer {
+  if (input.stage === "parse") {
+    return answer(
+      NOT_ANSWERED,
+      "the receipt did not decode, so nothing was bound to anything",
+    );
+  }
+  return input.ok
+    ? answer(
+        "ok",
+        "the leaf commits these exact bytes at this exact idtimestamp",
+      )
+    : answer(
+        "failed",
+        "the leaf does not commit these bytes at this idtimestamp",
+      );
+}
+
+export function trustQuestions(input: QuestionsInput): TrustQuestions {
+  return {
+    sealing: sealing(input),
+    "split-view": splitView(input),
+    authority: authority(input),
+    attribution: attribution(input),
+  };
+}
+
+/**
+ * The diagnostics for a run. `detached_payload_stage_collapse` is emitted
+ * exactly when the rung is genesis-or-known-log-key AND the receipt is
+ * detached-payload — the D3 claim in executable form. It is emitted on
+ * success too: knowing that a PASS could not have distinguished those two
+ * failures is as much a part of the trust story as the failure itself.
+ */
+export function diagnosticsFor(input: QuestionsInput): Diagnostic[] {
+  const out: Diagnostic[] = [];
+  const anchoredRung = rungAnswersSplitView(input.rung);
+
+  if (!anchoredRung && input.detachedPayload) {
+    out.push({
+      code: "detached_payload_stage_collapse",
+      message:
+        "This receipt has a detached payload, so its signature covers the MMR peak — " +
+        "a value only knowable after recomputing it from leaf + inclusion path. At the " +
+        `${input.rung} rung there is no independent accumulator to check that peak against, ` +
+        "so a tampered inclusion path, a tampered committed payload and a tampered signature " +
+        "are indistinguishable: all three report stage=signature. Re-run at the " +
+        "known-accumulator rung to separate them.",
+    });
+  }
+
+  if (!anchoredRung) {
+    out.push({
+      code: "rung_answers_no_split_view",
+      message:
+        `The ${input.rung} rung answers sealing and attribution but not split-view. ` +
+        `${RUNG_ANCHOR_NOTE[input.rung]}, and that root is not independent evidence about ` +
+        "which log state the rest of the world sees. A log that showed you a private branch " +
+        "would produce a receipt that verifies exactly like this one.",
+    });
+  }
+
+  if (input.kind === "payload") {
+    out.push({
+      code: "grant_authority_not_checked_for_payload_receipt",
+      message:
+        "verify_receipt proves that these payload bytes were sequenced at this idtimestamp. " +
+        "It does not check that whoever registered them held a grant to write to this log; " +
+        "that is verify_grant_receipt's question.",
+    });
+  }
+
+  if (
+    anchoredRung &&
+    !input.ok &&
+    input.stage === "signature" &&
+    input.anchored === false
+  ) {
+    out.push({
+      code: "accumulator_failure_reported_at_signature_stage",
+      message:
+        "stage=signature here is @forestrie/receipt-verify's label for an accumulator " +
+        "check that failed, not the result of evaluating a signature — no signature was " +
+        "evaluated at this rung. The reason field carries the real verdict " +
+        "(peak_not_in_known_accumulator or receipt_newer_than_known_accumulator). " +
+        "Passed through verbatim so stages[] stays comparable with the reference CLI.",
+    });
+  }
+
+  return out;
+}

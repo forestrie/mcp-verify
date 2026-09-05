@@ -5,7 +5,14 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "lib": ["ES2022"],
+    // "DOM" is here for the WebCrypto TYPES only — CryptoKey, SubtleCrypto.
+    // It is the same choice canopy's receipt-verify makes
+    // (packages/libs/receipt-verify/tsconfig.json: lib ES2022 + DOM), and for
+    // the same reason: src/core is browser-safe code that uses the Web Crypto
+    // API, whose types live in the DOM lib and nowhere else reachable without
+    // importing node:crypto — which src/core may not do. Deviation from the D1
+    // shared strict set, which was written for node-only CLIs.
+    "lib": ["ES2022", "DOM"],
     "strict": true,
     "skipLibCheck": true,
     "noEmit": true,

@@ -54,6 +54,7 @@ export type BurialManifest = {
   finalAccumulatorHex: string[];
   checkpointFiles: string[];
   checkpointSha256: string[];
+  receiptSha256: string;
 };
 
 export const GOLDEN_MANIFEST = JSON.parse(

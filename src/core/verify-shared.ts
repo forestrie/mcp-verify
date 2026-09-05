@@ -1,0 +1,429 @@
+/**
+ * The parts of a verify run that do not depend on which receipt kind is being
+ * verified: rung dispatch for the two anchored rungs, result assembly, and
+ * the one-line human summary.
+ *
+ * Everything here is pure over bytes. No `node:*`, no `fetch`, no `fs` — the
+ * browser-safety gate bundles `src/core/index.ts` for `platform: "browser"`
+ * and fails on any edge to a node builtin, so this file cannot acquire one
+ * without CI going red.
+ */
+import {
+  decodeKnownAccumulator,
+  importEs256PublicKeyFromGrantDataXy64,
+  parseReceipt,
+  resolveDelegatedVerifyKey,
+  verifyCheckpointChain,
+  verifyReceiptOfflineAgainstKnownAccumulator,
+  type CheckpointChainLink,
+  type ReceiptVerifyResult,
+} from "@forestrie/receipt-verify";
+import { verifyCoseSign1WithParsedKey } from "@forestrie/encoding";
+import type { AnchorReport, Diagnostic, VerifyResult } from "./result.js";
+import type { RungName, TrustRung } from "./rung.js";
+import { rungAnswersSplitView } from "./rung.js";
+import {
+  anchoredStageRows,
+  knownKeyStageRows,
+  stageRows,
+  VERIFY_STAGES,
+} from "./stages.js";
+import {
+  diagnosticsFor,
+  trustQuestions,
+  type ReceiptKind,
+} from "./questions.js";
+import { PACKAGE_VERSION, RECEIPT_VERIFY_VERSION } from "./version.js";
+
+export class VerifyInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "VerifyInputError";
+  }
+}
+
+/**
+ * Import a caller-known log OWNER key from raw 64-byte P-256 x‖y.
+ *
+ * Wrapped because WebCrypto throws a bare `DataError: Invalid keyData` for
+ * anything that is not a point on the curve, and a stack trace is the wrong
+ * answer to "you gave me the wrong key". The value is the delegation-cert
+ * ISSUER's key, not the sealer key: the label-1000 cert still resolves under
+ * it, so the anchor survives sealer rotation.
+ */
+export async function importKnownLogKey(
+  keyXy: Uint8Array,
+): Promise<CryptoKey> {
+  if (keyXy.length !== 64) {
+    throw new VerifyInputError(
+      `keyXy must be raw P-256 x‖y (64 bytes), got ${keyXy.length}`,
+    );
+  }
+  try {
+    return await importEs256PublicKeyFromGrantDataXy64(keyXy);
+  } catch (err) {
+    throw new VerifyInputError(
+      `keyXy is not a valid P-256 public key: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+}
+
+/**
+ * Is the receipt's COSE payload detached?
+ *
+ * The condition that makes D3's stage collapse possible: a detached payload
+ * means the signature covers the MMR peak, which is only knowable after
+ * recomputing it from leaf + path. Returns `undefined` when the receipt does
+ * not parse at all — there is then nothing to be detached.
+ */
+export function isDetachedPayload(receipt: Uint8Array): boolean | undefined {
+  try {
+    const parsed = parseReceipt(receipt);
+    return parsed.coseSign1[2] === null;
+  } catch {
+    return undefined;
+  }
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Which peak of a trusted accumulator the receipt matched.
+ *
+ * `verifyReceiptOfflineAgainstKnownAccumulator` answers yes/no, not which —
+ * so this re-asks it once per peak. That is a handful of extra SHA-256 folds
+ * over an accumulator that is at most log2(logSize) entries long, and it is
+ * the price of not taking a direct dependency on `@forestrie/merklelog`'s
+ * `calculateRoot` just to report an index. D2 pins two @forestrie packages;
+ * a third would be a third thing to keep in step for one integer.
+ */
+async function findMatchedPeak(input: {
+  receiptCbor: Uint8Array;
+  idtimestampBe8: Uint8Array;
+  inner: Uint8Array;
+  accumulator: Uint8Array[];
+  size: bigint;
+}): Promise<number | null> {
+  for (let i = 0; i < input.accumulator.length; i++) {
+    const one = input.accumulator[i];
+    if (one === undefined) continue;
+    const probe = await verifyReceiptOfflineAgainstKnownAccumulator({
+      ...input,
+      accumulator: [one],
+    });
+    if (probe.ok) return i;
+  }
+  return null;
+}
+
+export type AnchoredOutcome = {
+  result: ReceiptVerifyResult;
+  anchor: AnchorReport;
+};
+
+/**
+ * The known-accumulator rung.
+ *
+ * NOTE what this does NOT do: it checks no signature. That is deliberate and
+ * it is the whole reason the rung separates what genesis cannot. An anchored
+ * peak match implies a valid publishing signature, because univocity refuses
+ * to publish a checkpoint whose signature does not verify under the log's
+ * live delegation — so the accumulator you trust IS the authority, and the
+ * arithmetic that runs is pure inclusion + binding. A tampered inclusion path
+ * therefore fails HERE with `peak_not_in_known_accumulator`, where at the
+ * genesis rung it was indistinguishable from a bad signature.
+ *
+ * This is a deliberate divergence from `forestrie verify --known-accumulator`,
+ * which runs the genesis/known-key offline verify FIRST and only then checks
+ * the anchor, so its stage collapse survives into the anchored rung. See
+ * docs/differential-test.md.
+ */
+export async function verifyAtKnownAccumulator(input: {
+  receiptCbor: Uint8Array;
+  idtimestampBe8: Uint8Array;
+  inner: Uint8Array;
+  accumulatorBytes: Uint8Array;
+}): Promise<AnchoredOutcome> {
+  const snapshot = decodeKnownAccumulator(input.accumulatorBytes);
+  const result = await verifyReceiptOfflineAgainstKnownAccumulator({
+    receiptCbor: input.receiptCbor,
+    idtimestampBe8: input.idtimestampBe8,
+    inner: input.inner,
+    accumulator: snapshot.accumulator,
+    size: snapshot.size,
+  });
+  const matchedPeak = result.ok
+    ? await findMatchedPeak({
+        receiptCbor: input.receiptCbor,
+        idtimestampBe8: input.idtimestampBe8,
+        inner: input.inner,
+        accumulator: snapshot.accumulator,
+        size: snapshot.size,
+      })
+    : null;
+  const anchor: AnchorReport = {
+    anchored: result.ok,
+    anchoredSize: snapshot.size.toString(),
+    peakCount: snapshot.accumulator.length,
+    matchedPeak,
+    blockNumber: snapshot.blockNumber.toString(),
+    blockHash: `0x${bytesToHex(snapshot.blockHash)}`,
+    univocity: `0x${bytesToHex(snapshot.univocity)}`,
+    logId: `0x${bytesToHex(snapshot.logId)}`,
+  };
+  if (result.reason !== undefined) anchor.reason = result.reason;
+  return { result, anchor };
+}
+
+/**
+ * Signature trust for chain links, rooted in the caller's anchor: resolve
+ * each checkpoint's label-1000 delegation cert under the root keys, then
+ * verify the COSE signature over the FOLDED accumulator as detached payload.
+ * The payload is computed by the fold, never read from the checkpoint — a
+ * link only authenticates the accumulator its own proof derives (ADR-0046).
+ */
+function makeCheckpointSignatureVerifier(
+  rootKeys: CryptoKey[],
+): (checkpoint: Uint8Array, detachedPayload: Uint8Array) => Promise<boolean> {
+  return async (checkpointBytes, detachedPayload) => {
+    const resolution = await resolveDelegatedVerifyKey(
+      checkpointBytes,
+      rootKeys,
+    );
+    if (resolution.kind === "broken") return false;
+    const candidates =
+      resolution.kind === "resolved"
+        ? [resolution.delegatedKey, ...rootKeys]
+        : rootKeys;
+    for (const key of candidates) {
+      if (
+        await verifyCoseSign1WithParsedKey(checkpointBytes, key, {
+          logPrefix: "checkpoint-chain",
+          detachedPayload,
+        })
+      ) {
+        return true;
+      }
+    }
+    return false;
+  };
+}
+
+/**
+ * The checkpoint-chain rung: fold the retained `.sth` chain, then match the
+ * receipt against ANY authenticated link — later links' signed consistency
+ * proofs commit an earlier accumulator forward, so burial never turns an
+ * honest receipt tamper-shaped.
+ *
+ * Newest-first, mirroring the reference CLI: the freshest cover gives the
+ * most useful report. Retention limits coverage, never validity, so a receipt
+ * newer than the whole chain fails CLOSED with a refresh remedy.
+ */
+export async function verifyAtCheckpointChain(input: {
+  receiptCbor: Uint8Array;
+  idtimestampBe8: Uint8Array;
+  inner: Uint8Array;
+  checkpoints: readonly Uint8Array[];
+  rootKeys: CryptoKey[];
+}): Promise<AnchoredOutcome> {
+  if (input.rootKeys.length === 0) {
+    throw new VerifyInputError(
+      "the checkpoint-chain rung needs an ES256 trust root: supply `genesis` or `keyXy` alongside `checkpoints`",
+    );
+  }
+  const chain = await verifyCheckpointChain({
+    checkpoints: [...input.checkpoints],
+    verifySignature: makeCheckpointSignatureVerifier(input.rootKeys),
+  });
+  if (!chain.ok) {
+    throw new VerifyInputError(
+      `checkpoint chain did not verify (${chain.reason} at link ${chain.at}): ${chain.detail}`,
+    );
+  }
+  const links: CheckpointChainLink[] = chain.links;
+  const final = links[links.length - 1];
+  if (final === undefined) {
+    throw new VerifyInputError("checkpoint chain folded to zero links");
+  }
+
+  let last: ReceiptVerifyResult = {
+    ok: false,
+    stage: "signature",
+    reason: "peak_not_in_checkpoint_chain",
+  };
+  for (let i = links.length - 1; i >= 0; i--) {
+    const link = links[i];
+    if (link === undefined) continue;
+    const attempt = await verifyReceiptOfflineAgainstKnownAccumulator({
+      receiptCbor: input.receiptCbor,
+      idtimestampBe8: input.idtimestampBe8,
+      inner: input.inner,
+      accumulator: link.accumulator,
+      size: final.treeSize2,
+    });
+    if (attempt.ok) {
+      const matchedPeak = await findMatchedPeak({
+        receiptCbor: input.receiptCbor,
+        idtimestampBe8: input.idtimestampBe8,
+        inner: input.inner,
+        accumulator: link.accumulator,
+        size: final.treeSize2,
+      });
+      return {
+        result: attempt,
+        anchor: {
+          anchored: true,
+          anchoredSize: link.treeSize2.toString(),
+          peakCount: link.accumulator.length,
+          matchedPeak,
+          linkCount: links.length,
+          matchedLinkSize: link.treeSize2.toString(),
+        },
+      };
+    }
+    last = attempt;
+    // A parse failure or a newer-than-chain receipt is the same at every
+    // link; no point re-asking the older ones.
+    if (attempt.stage === "parse") break;
+    if (attempt.reason === "receipt_newer_than_known_accumulator") break;
+  }
+
+  // Rename the reason to name the anchor the caller actually supplied: they
+  // handed us a checkpoint chain, not a snapshot, and "refresh the
+  // accumulator" would be the wrong remedy.
+  const reason =
+    last.stage === "parse"
+      ? last.reason
+      : last.reason === "receipt_newer_than_known_accumulator"
+        ? "receipt_newer_than_checkpoint_chain"
+        : "peak_not_in_checkpoint_chain";
+  const result: ReceiptVerifyResult = { ok: false, stage: last.stage };
+  if (reason !== undefined) result.reason = reason;
+  return {
+    result,
+    anchor: {
+      anchored: false,
+      anchoredSize: final.treeSize2.toString(),
+      peakCount: final.accumulator.length,
+      matchedPeak: null,
+      linkCount: links.length,
+      ...(reason !== undefined ? { reason } : {}),
+    },
+  };
+}
+
+/**
+ * Under a caller-known key, a broken delegation chain means the certificate
+ * did not verify under the CALLER's key — a different trust failure from a
+ * genesis-rooted `delegation_invalid` (wrong known key, or a forged cert).
+ * Rename it so the operator reaches for "check the key you were given", not
+ * "check the log's delegation". Ported from forestrie-cli's
+ * `remapKnownKeyFailure` so the differential test agrees on the reason.
+ */
+export function remapKnownKeyFailure(
+  result: ReceiptVerifyResult,
+): ReceiptVerifyResult {
+  if (!result.ok && result.reason === "delegation_invalid") {
+    return { ...result, reason: "known_key_mismatch" };
+  }
+  return result;
+}
+
+export type AssembleInput = {
+  rung: RungName;
+  kind: ReceiptKind;
+  result: ReceiptVerifyResult;
+  detachedPayload: boolean | undefined;
+  anchor?: AnchorReport | undefined;
+};
+
+/** Build the D3 result from the mechanical verdict plus the rung context. */
+export function assembleResult(input: AssembleInput): VerifyResult {
+  const anchoredRung = rungAnswersSplitView(input.rung);
+  const rows =
+    input.rung === "known-log-key"
+      ? knownKeyStageRows(input.result)
+      : anchoredRung
+        ? anchoredStageRows(input.result)
+        : stageRows(input.result);
+
+  const questionsInput = {
+    rung: input.rung,
+    kind: input.kind,
+    ok: input.result.ok,
+    stage: input.result.stage,
+    detachedPayload: input.detachedPayload === true,
+    anchored: input.anchor?.anchored,
+  };
+
+  const out: VerifyResult = {
+    ok: input.result.ok,
+    rung: input.rung,
+    stage: input.result.stage,
+    stages: rows,
+    questions: trustQuestions(questionsInput),
+    diagnostics: diagnosticsFor(questionsInput),
+    verifier: {
+      package: "@forestrie/mcp-verify",
+      version: PACKAGE_VERSION,
+      receiptVerify: RECEIPT_VERIFY_VERSION,
+    },
+  };
+  if (input.result.reason !== undefined) out.reason = input.result.reason;
+  if (input.anchor !== undefined) out.anchor = input.anchor;
+  return out;
+}
+
+/**
+ * A result for an input that never reached the arithmetic — a rung whose
+ * bytes did not decode, say. Reported as a clean `parse` failure rather than
+ * a thrown stack trace, because the reference implementation's habit of
+ * crashing on a missing required argument (plan-2609-02 "What changed on
+ * contact" 3) is exactly what this layer exists not to reproduce.
+ */
+export function inputFailureResult(
+  rung: RungName,
+  kind: ReceiptKind,
+  reason: string,
+): VerifyResult {
+  return assembleResult({
+    rung,
+    kind,
+    result: { ok: false, stage: "parse", reason },
+    detachedPayload: undefined,
+  });
+}
+
+/**
+ * The sentence a human reads in an agent transcript. It must never be a bare
+ * "valid" (D3): the anchor and the unanswered questions are the point.
+ *
+ * `verify-grant: FAILED at signature (signature_invalid) · rung=genesis · sealing failed, split-view not answered at this rung`
+ */
+export function summarize(verb: string, result: VerifyResult): string {
+  const head = result.ok
+    ? `${verb}: PASS`
+    : `${verb}: FAILED at ${result.stage}${
+        result.reason !== undefined ? ` (${result.reason})` : ""
+      }`;
+  const answered = (
+    ["sealing", "split-view", "authority", "attribution"] as const
+  ).map((q) => {
+    const a = result.questions[q];
+    return `${q} ${
+      a.status === "not_answered_at_this_rung"
+        ? "not answered at this rung"
+        : a.status
+    }`;
+  });
+  return `${head} · rung=${result.rung} · ${answered.join(", ")}`;
+}
+
+/** Exported for tests that assert the stage vocabulary has not drifted. */
+export { VERIFY_STAGES };
+
+export type { Diagnostic };
