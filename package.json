@@ -1,0 +1,92 @@
+{
+  "name": "@forestrie/mcp-verify",
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "description": "MCP verification server for Forestrie receipts — offline, no backend, no key, no network",
+  "keywords": [
+    "mcp",
+    "modelcontextprotocol",
+    "scitt",
+    "cose",
+    "receipt",
+    "transparency-log",
+    "forestrie"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/forestrie/mcp-verify.git"
+  },
+  "homepage": "https://github.com/forestrie/mcp-verify#readme",
+  "bugs": {
+    "url": "https://github.com/forestrie/mcp-verify/issues"
+  },
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "packageManager": "pnpm@10.6.5",
+  "bin": {
+    "forestrie-mcp-verify": "./bin/mcp-verify.mjs",
+    "mcp-verify": "./bin/mcp-verify.mjs"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/core/index.d.ts",
+      "import": "./dist/core/index.js",
+      "default": "./dist/core/index.js"
+    },
+    "./server": {
+      "types": "./dist/node/server.d.ts",
+      "import": "./dist/node/server.js",
+      "default": "./dist/node/server.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/core/index.js",
+  "types": "./dist/core/index.d.ts",
+  "sideEffects": [
+    "./dist/node/cli.js",
+    "./bin/mcp-verify.mjs"
+  ],
+  "files": [
+    "dist",
+    "src",
+    "bin",
+    "fixtures",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check:browser-safe": "node tools/check-browser-safe.mjs",
+    "check:encoding-single-copy": "node scripts/check-encoding-single-copy.mjs",
+    "test:unit": "vitest run --project unit",
+    "test:differential": "vitest run --project differential",
+    "test": "pnpm run check:browser-safe && pnpm run check:encoding-single-copy && vitest run --project unit",
+    "test:watch": "vitest --project unit",
+    "demo": "node ./bin/mcp-verify.mjs demo",
+    "prepack": "pnpm run build",
+    "publish:dry-run": "pnpm pack && npm publish --dry-run --tag dryrun ./forestrie-mcp-verify-*.tgz"
+  },
+  "dependencies": {
+    "@forestrie/encoding": "0.7.0",
+    "@forestrie/receipt-verify": "1.0.0",
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "esbuild": "^0.25.0",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.11"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public",
+    "provenance": true
+  }
+}
