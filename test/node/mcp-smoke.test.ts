@@ -1,0 +1,228 @@
+/**
+ * The MCP surface, over the SDK's in-memory transport pair.
+ *
+ * In-memory rather than a spawned process: it is faster and it exercises the
+ * same `Server`/`Client` protocol code. The one thing it CANNOT catch is a
+ * stray `console.log` corrupting the stdio framing — that needs a real
+ * process, and it lives in the publish-dry-run CI job and in
+ * `pnpm run check:stdio-clean`.
+ *
+ * This file runs under the forbidden-fetch global, so it is simultaneously
+ * the D2(b) proof at the MCP layer — which is where D2 asks for it, "for
+ * every tool call".
+ */
+import { readFileSync } from "node:fs";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { z } from "zod";
+import { createServer } from "../../src/node/server.js";
+import {
+  goldenCommittedGrant,
+  goldenEntryId,
+  readFixture,
+} from "../../src/node/fixtures.js";
+import { verifyOutputShape } from "../../src/node/tools.js";
+
+const repoRoot = new URL("../../", import.meta.url).pathname;
+const pkg = JSON.parse(readFileSync(`${repoRoot}package.json`, "utf8")) as {
+  version: string;
+};
+
+const b64 = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64");
+
+let client: Client;
+
+beforeAll(async () => {
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
+  const server = createServer();
+  await server.connect(serverTransport);
+  client = new Client({ name: "mcp-verify-test", version: "0" });
+  await client.connect(clientTransport);
+});
+
+afterAll(async () => {
+  await client.close();
+});
+
+describe("initialize", () => {
+  /**
+   * The version is read from package.json here so that a forgotten bump fails
+   * as a red test rather than as a lie in `initialize`'s serverInfo.
+   */
+  it("reports the package version", () => {
+    expect(client.getServerVersion()).toMatchObject({
+      name: "forestrie-mcp-verify",
+      version: pkg.version,
+    });
+  });
+
+  it("advertises tools and resources", () => {
+    const caps = client.getServerCapabilities();
+    expect(caps?.tools).toBeDefined();
+    expect(caps?.resources).toBeDefined();
+  });
+});
+
+describe("tools/list", () => {
+  it("returns exactly the three phase-1 tools", async () => {
+    const { tools } = await client.listTools();
+    // Four after phase 2 — update this in the SAME PR that adds verify_self,
+    // never before. A tool list that drifts ahead of the code is how an agent
+    // learns to call something that is not there.
+    expect(tools.map((t) => t.name).sort()).toEqual([
+      "decode_receipt",
+      "verify_grant_receipt",
+      "verify_receipt",
+    ]);
+  });
+
+  it("every tool advertises an outputSchema", async () => {
+    const { tools } = await client.listTools();
+    for (const t of tools) {
+      expect(t.outputSchema, t.name).toBeDefined();
+      expect(t.outputSchema?.type, t.name).toBe("object");
+      expect(t.inputSchema.type, t.name).toBe("object");
+    }
+  });
+
+  /**
+   * O2 in assertion form: the SDK converted zod-4 schemas without
+   * `z.toJSONSchema()` at the call site. If a future SDK regresses that path,
+   * the tools lose their schemas silently — unless this fails.
+   */
+  it("the zod-4 discriminated union rendered as JSON Schema", async () => {
+    const { tools } = await client.listTools();
+    const verify = tools.find((t) => t.name === "verify_grant_receipt");
+    const trust = (
+      verify?.inputSchema.properties as Record<string, { oneOf?: unknown[] }>
+    ).trust;
+    expect(trust?.oneOf).toHaveLength(4);
+  });
+
+  it("every tool is annotated read-only and closed-world", async () => {
+    const { tools } = await client.listTools();
+    for (const t of tools) {
+      expect(t.annotations?.readOnlyHint, t.name).toBe(true);
+      expect(t.annotations?.openWorldHint, t.name).toBe(false);
+    }
+  });
+});
+
+describe("resources/list", () => {
+  it("includes the golden receipt", async () => {
+    const { resources } = await client.listResources();
+    const uris = resources.map((r) => r.uri);
+    expect(uris).toContain("forestrie://fixtures/golden/grant-receipt.cbor");
+    expect(uris).toContain("forestrie://fixtures/golden/grant-genesis.cbor");
+    expect(uris).toContain("forestrie://fixtures/golden/manifest.json");
+  });
+
+  it("reserves but does not register the forestrie://self namespace", async () => {
+    const { resources } = await client.listResources();
+    // Phase 2. An unregistered namespace beats one that resolves to nothing.
+    expect(
+      resources.filter((r) => r.uri.startsWith("forestrie://self/")),
+    ).toEqual([]);
+  });
+
+  it("a fixture resource reads back the exact bundled bytes", async () => {
+    const res = await client.readResource({
+      uri: "forestrie://fixtures/golden/grant-receipt.cbor",
+    });
+    const first = res.contents[0];
+    expect(first).toBeDefined();
+    const blob = (first as { blob?: string }).blob;
+    expect(typeof blob).toBe("string");
+    expect(Buffer.from(blob as string, "base64")).toEqual(
+      Buffer.from(readFixture("golden/grant-receipt.cbor")),
+    );
+  });
+});
+
+describe("tools/call — a real verification over the bundled fixtures", () => {
+  it("verify_grant_receipt at the genesis rung passes, with structured + text", async () => {
+    const res = await client.callTool({
+      name: "verify_grant_receipt",
+      arguments: {
+        receipt: { b64: b64(readFixture("golden/grant-receipt.cbor")) },
+        committedGrant: { b64: b64(goldenCommittedGrant()) },
+        entryId: goldenEntryId(),
+        trust: {
+          rung: "genesis",
+          genesis: { b64: b64(readFixture("golden/grant-genesis.cbor")) },
+        },
+      },
+    });
+    const structured = res.structuredContent as { ok: boolean; rung: string };
+    expect(structured.ok).toBe(true);
+    expect(structured.rung).toBe("genesis");
+
+    const content = res.content as { type: string; text: string }[];
+    expect(content[0]?.type).toBe("text");
+    expect(content[0]?.text.length).toBeGreaterThan(0);
+    // Never a bare "valid": the summary names the rung and the unanswered
+    // questions, which is the whole D3 point.
+    expect(content[0]?.text).toContain("rung=genesis");
+    expect(content[0]?.text).toContain("split-view not answered at this rung");
+  });
+
+  it("the structuredContent validates against the advertised outputSchema", async () => {
+    const res = await client.callTool({
+      name: "verify_grant_receipt",
+      arguments: {
+        receipt: { b64: b64(readFixture("golden/grant-receipt.cbor")) },
+        committedGrant: { b64: b64(goldenCommittedGrant()) },
+        entryId: goldenEntryId(),
+        trust: {
+          rung: "genesis",
+          genesis: { b64: b64(readFixture("golden/grant-genesis.cbor")) },
+        },
+      },
+    });
+    expect(() =>
+      z.object(verifyOutputShape).parse(res.structuredContent),
+    ).not.toThrow();
+  });
+
+  it("decode_receipt renders the golden receipt and says it verified nothing", async () => {
+    const res = await client.callTool({
+      name: "decode_receipt",
+      arguments: {
+        receipt: { b64: b64(readFixture("golden/grant-receipt.cbor")) },
+      },
+    });
+    const structured = res.structuredContent as { byteLength: number };
+    expect(structured.byteLength).toBe(118);
+    const content = res.content as { text: string }[];
+    expect(content[0]?.text).toContain("NOT verified");
+  });
+
+  it("a bad input is a TOOL error, not a verification failure", async () => {
+    const res = await client.callTool({
+      name: "decode_receipt",
+      arguments: { receipt: { b64: "!!!! not base64 !!!!" } },
+    });
+    expect(res.isError).toBe(true);
+    expect(res.structuredContent).toBeUndefined();
+    const content = res.content as { text: string }[];
+    expect(content[0]?.text).toContain("input error");
+  });
+
+  it("a schema-invalid entryId is rejected by the SDK before our code runs", async () => {
+    const res = await client.callTool({
+      name: "verify_grant_receipt",
+      arguments: {
+        receipt: { b64: b64(readFixture("golden/grant-receipt.cbor")) },
+        committedGrant: { b64: b64(goldenCommittedGrant()) },
+        entryId: "NOT-HEX",
+        trust: {
+          rung: "genesis",
+          genesis: { b64: b64(readFixture("golden/grant-genesis.cbor")) },
+        },
+      },
+    });
+    expect(res.isError).toBe(true);
+  });
+});

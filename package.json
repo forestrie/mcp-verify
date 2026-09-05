@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "license": "MIT",
   "type": "module",
-  "description": "MCP verification server for Forestrie receipts — offline, no backend, no key, no network",
+  "description": "MCP verification server for Forestrie receipts \u2014 offline, no backend, no key, no network",
   "keywords": [
     "mcp",
     "modelcontextprotocol",
@@ -69,16 +69,17 @@
     "test:watch": "vitest --project unit",
     "demo": "node ./bin/mcp-verify.mjs demo",
     "prepack": "pnpm run build",
-    "publish:dry-run": "pnpm pack && npm publish --dry-run --tag dryrun ./forestrie-mcp-verify-*.tgz"
+    "publish:dry-run": "pnpm pack && npm publish --dry-run --tag dryrun ./forestrie-mcp-verify-*.tgz",
+    "check:stdio-clean": "node scripts/check-stdio-clean.mjs"
   },
   "dependencies": {
     "@forestrie/encoding": "0.7.0",
+    "@forestrie/merklelog": "0.3.0",
     "@forestrie/receipt-verify": "1.0.0",
     "@modelcontextprotocol/sdk": "1.30.0",
     "zod": "^4.5.4"
   },
   "devDependencies": {
-    "@forestrie/merklelog": "0.3.0",
     "@types/node": "^22.14.0",
     "esbuild": "^0.25.0",
     "prettier": "^3.6.2",

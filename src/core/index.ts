@@ -45,6 +45,12 @@ export {
 
 export { VerifyInputError, summarize } from "./verify-shared.js";
 
+export type { RecomputedPeak } from "./peak.js";
+/** Recompute a receipt's MMR peak from leaf + inclusion path. Exposed because
+ *  building a known-accumulator snapshot for a receipt you hold needs it, and
+ *  because it is the value the whole ladder turns on. */
+export { recomputeReceiptPeak } from "./peak.js";
+
 export type { VerifyReceiptInput } from "./verify-receipt.js";
 /** Payload receipt: exact registered payload + entry id + rung.
  *  Mirrors `forestrie verify`. */

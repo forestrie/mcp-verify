@@ -23,19 +23,17 @@
  * conformance vectors the parent plan schedules for `forestrie/protocol`.
  * Until those exist, this is the honest version, said out loud.
  *
- * `@forestrie/merklelog` is a devDependency for exactly this: it is already in
- * the tree at 0.3.0 (receipt-verify depends on it exactly), so declaring it
- * adds no copy, and `calculateRoot` is not re-exported by receipt-verify.
+ * The peak recompute itself lives in `src/core/peak.ts` — the package needs it
+ * anyway, to report WHICH accumulator peak a receipt matched and to run the
+ * demo's second rung.
  */
-import { calculateRoot, createSyncHasher } from "@forestrie/merklelog";
 import {
   encodeKnownAccumulator,
   entryIdHexToIdtimestampBe8,
   grantCommitmentHashFromGrant,
-  parseReceipt,
-  univocityLeafHash,
   type KnownAccumulator,
 } from "@forestrie/receipt-verify";
+import { recomputeReceiptPeak } from "../../src/core/index.js";
 import { decodeGrantPayload } from "@forestrie/encoding";
 
 /** The receipt's peak, recomputed from leaf + inclusion path. */
@@ -44,24 +42,12 @@ export async function recomputePeak(input: {
   committedGrant: Uint8Array;
   entryId: string;
 }): Promise<{ peak: Uint8Array; leafIndex: bigint }> {
-  const parsed = parseReceipt(input.receipt);
-  const leafIdx =
-    parsed.proof.leafIndex !== undefined
-      ? parsed.proof.leafIndex
-      : (parsed.proof.mmrIndex ?? 0n);
   const grant = decodeGrantPayload(input.committedGrant);
-  const inner = await grantCommitmentHashFromGrant(grant);
-  const leafHash = await univocityLeafHash(
-    entryIdHexToIdtimestampBe8(input.entryId),
-    inner,
-  );
-  const peak = await calculateRoot(
-    await createSyncHasher(),
-    leafHash,
-    parsed.proof,
-    leafIdx,
-  );
-  return { peak, leafIndex: leafIdx };
+  return recomputeReceiptPeak({
+    receiptCbor: input.receipt,
+    idtimestampBe8: entryIdHexToIdtimestampBe8(input.entryId),
+    inner: await grantCommitmentHashFromGrant(grant),
+  });
 }
 
 /**

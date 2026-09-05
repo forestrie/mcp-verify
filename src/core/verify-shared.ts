@@ -19,6 +19,7 @@ import {
   type ReceiptVerifyResult,
 } from "@forestrie/receipt-verify";
 import { verifyCoseSign1WithParsedKey } from "@forestrie/encoding";
+import { bytesEqual, recomputeReceiptPeak } from "./peak.js";
 import type { AnchorReport, Diagnostic, VerifyResult } from "./result.js";
 import type { RungName, TrustRung } from "./rung.js";
 import { rungAnswersSplitView } from "./rung.js";
@@ -94,28 +95,28 @@ function bytesToHex(bytes: Uint8Array): string {
 /**
  * Which peak of a trusted accumulator the receipt matched.
  *
- * `verifyReceiptOfflineAgainstKnownAccumulator` answers yes/no, not which —
- * so this re-asks it once per peak. That is a handful of extra SHA-256 folds
- * over an accumulator that is at most log2(logSize) entries long, and it is
- * the price of not taking a direct dependency on `@forestrie/merklelog`'s
- * `calculateRoot` just to report an index. D2 pins two @forestrie packages;
- * a third would be a third thing to keep in step for one integer.
+ * `verifyReceiptOfflineAgainstKnownAccumulator` answers yes/no, not which, so
+ * the index comes from recomputing the peak ourselves and looking it up. Same
+ * arithmetic, same library — see src/core/peak.ts for why that recompute is
+ * not a reimplementation of anything.
  */
-async function findMatchedPeak(input: {
-  receiptCbor: Uint8Array;
-  idtimestampBe8: Uint8Array;
-  inner: Uint8Array;
-  accumulator: Uint8Array[];
-  size: bigint;
-}): Promise<number | null> {
-  for (let i = 0; i < input.accumulator.length; i++) {
-    const one = input.accumulator[i];
-    if (one === undefined) continue;
-    const probe = await verifyReceiptOfflineAgainstKnownAccumulator({
-      ...input,
-      accumulator: [one],
-    });
-    if (probe.ok) return i;
+async function findMatchedPeak(
+  input: {
+    receiptCbor: Uint8Array;
+    idtimestampBe8: Uint8Array;
+    inner: Uint8Array;
+  },
+  accumulator: Uint8Array[],
+): Promise<number | null> {
+  let peak: Uint8Array;
+  try {
+    ({ peak } = await recomputeReceiptPeak(input));
+  } catch {
+    return null;
+  }
+  for (let i = 0; i < accumulator.length; i++) {
+    const candidate = accumulator[i];
+    if (candidate !== undefined && bytesEqual(peak, candidate)) return i;
   }
   return null;
 }
@@ -157,13 +158,14 @@ export async function verifyAtKnownAccumulator(input: {
     size: snapshot.size,
   });
   const matchedPeak = result.ok
-    ? await findMatchedPeak({
-        receiptCbor: input.receiptCbor,
-        idtimestampBe8: input.idtimestampBe8,
-        inner: input.inner,
-        accumulator: snapshot.accumulator,
-        size: snapshot.size,
-      })
+    ? await findMatchedPeak(
+        {
+          receiptCbor: input.receiptCbor,
+          idtimestampBe8: input.idtimestampBe8,
+          inner: input.inner,
+        },
+        snapshot.accumulator,
+      )
     : null;
   const anchor: AnchorReport = {
     anchored: result.ok,
@@ -266,13 +268,14 @@ export async function verifyAtCheckpointChain(input: {
       size: final.treeSize2,
     });
     if (attempt.ok) {
-      const matchedPeak = await findMatchedPeak({
-        receiptCbor: input.receiptCbor,
-        idtimestampBe8: input.idtimestampBe8,
-        inner: input.inner,
-        accumulator: link.accumulator,
-        size: final.treeSize2,
-      });
+      const matchedPeak = await findMatchedPeak(
+        {
+          receiptCbor: input.receiptCbor,
+          idtimestampBe8: input.idtimestampBe8,
+          inner: input.inner,
+        },
+        link.accumulator,
+      );
       return {
         result: attempt,
         anchor: {
