@@ -67,12 +67,34 @@ export type {
   DecodedReceipt,
   DecodeReceiptStage,
   Json,
+  LabelInfo,
 } from "./decode-receipt.js";
-/** CBOR → JSON. No verification. Mirrors `forestrie decode-receipt --json`. */
+/** CBOR → JSON. No verification. Mirrors `forestrie decode-receipt --json`.
+ *
+ *  This surface is deliberately name- and shape-compatible with
+ *  `@forestrie/forestrie-cli@0.8.0`'s `/decode-receipt` subpath export, which
+ *  is prepared but not yet on npm. When it publishes, src/core/decode-receipt.ts
+ *  is deleted and these re-export from the dependency instead — see that file's
+ *  header for the checklist (the encoding-single-copy gate must still pass). */
 export {
+  ALG_NAMES,
+  COSE_KEY_PARAM_NAMES,
+  COSE_SIGN1_TAG,
+  CWT_CLAIMS_LABEL,
+  CWT_CLAIM_NAMES,
+  DELEGATION_CERT_LABEL,
   DecodeReceiptError,
+  HEADER_LABELS,
+  PROOFS_CONSISTENCY_KEY,
+  PROOFS_INCLUSION_KEY,
+  PROOF_KIND_NAMES,
+  SEAL_PEAK_RECEIPTS_LABEL,
+  VDS_LABEL,
+  VDS_NAMES,
+  VERIFIABLE_PROOFS_LABEL,
   bytesToHex,
   decodeReceipt,
+  headerLabelInfo,
   toJson,
 } from "./decode-receipt.js";
 

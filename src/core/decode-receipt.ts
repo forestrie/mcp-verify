@@ -8,24 +8,46 @@
  * opaque signed bstr it must be. This module turns that result into a display
  * model: protected-header contents, named labels, JSON-safe values.
  *
- * ## Where this came from, and where it should go
+ * ## DELETE THIS FILE when @forestrie/forestrie-cli@0.8.0 lands on npm
  *
- * `forestrie-cli` has a renderer (`src/lib/decode-receipt-{decode,cbor,labels}.ts`)
- * and the output shape and label registry below are modelled on it, so that
- * `test/differential/` can compare this against `forestrie decode-receipt --json`.
- * But that CLI is `private: true` and ships only as compiled binaries, so
- * there is nothing to depend on — and copying 667 lines of someone else's
- * source into this tree would buy differential exactness at the price of a
- * silent fork. This is written fresh over the published packages only:
+ * This is a placeholder for a dependency that does not exist yet.
+ *
+ * `forestrie-cli` has this renderer already, but at v0.7.0 it is
+ * `private: true` and ships only as compiled binaries, so there was nothing
+ * to depend on — and copying 667 lines of someone else's source into this
+ * tree would have bought differential exactness at the price of a silent
+ * fork. So this is written fresh over the published packages only:
  * `parseReceipt` from `@forestrie/receipt-verify`, and
  * `decodeCborDeterministic` / `coseUnprotectedToMap` / `decodeCoseSign1` /
  * `CborTag` from `@forestrie/encoding@0.7.0`.
  *
- * **The long-term fix is not here.** `forestrie-cli` should publish its decode
- * renderer as a library, and when it does, this file should be deleted and
- * replaced by that dependency. Until then the differential test is what keeps
- * the two honest, and `docs/differential-test.md` records every place they
- * disagree and why.
+ * **That is changing.** `@forestrie/forestrie-cli@0.8.0` (prepared on the
+ * `publish-npm` branch, NOT yet published) makes the CLI a public,
+ * Node-runnable npm package with a pure subpath export
+ * `@forestrie/forestrie-cli/decode-receipt`, exposing `decodeReceipt`,
+ * `renderReceipt`, `DecodeReceiptError`, `toJson`, `bytesToHex`, the label
+ * tables and the same `DecodedReceipt` type. It imports only
+ * `@forestrie/receipt-verify` and `@forestrie/encoding`.
+ *
+ * When that version is on npm:
+ *
+ *   1. `pnpm add @forestrie/forestrie-cli@0.8.0` (exact).
+ *   2. Delete this file and re-export from the dependency instead:
+ *      `export { decodeReceipt, ... } from "@forestrie/forestrie-cli/decode-receipt";`
+ *   3. Re-run `pnpm run check:encoding-single-copy`. The CLI pins
+ *      `@forestrie/encoding ^0.7.0`, so it SHOULD dedupe to our exact 0.7.0
+ *      and the gate should stay green — but that is the thing to verify
+ *      before merging, not to assume. A second wire-type codec is two
+ *      answers about the same bytes.
+ *   4. Re-run `pnpm run check:browser-safe`. The subpath is documented as
+ *      runtime-neutral; this gate is what proves it for OUR graph.
+ *   5. Keep the differential test. It is what would catch the swap changing
+ *      behaviour.
+ *
+ * The public surface below is deliberately named and shaped to match that
+ * subpath export, so step 2 really is a one-line import change. The one
+ * KNOWN behavioural difference is under "One deliberate behavioural
+ * difference" below, and it disappears with the swap.
  *
  * ## One deliberate behavioural difference
  *
@@ -68,9 +90,14 @@ export const DELEGATION_CERT_LABEL = 1000;
 /** Pre-signed peak inclusion receipts on a checkpoint. */
 export const SEAL_PEAK_RECEIPTS_LABEL = -65931;
 
+/** Inclusion proofs key inside header 396. */
+export const PROOFS_INCLUSION_KEY = -1;
+/** Consistency proofs key inside header 396. */
+export const PROOFS_CONSISTENCY_KEY = -2;
+
 export type LabelInfo = { name: string; note?: string };
 
-const HEADER_LABELS: ReadonlyMap<number, LabelInfo> = new Map([
+export const HEADER_LABELS: ReadonlyMap<number, LabelInfo> = new Map([
   [1, { name: "alg" }],
   [2, { name: "crit" }],
   [3, { name: "content type" }],
@@ -110,7 +137,7 @@ const HEADER_LABELS: ReadonlyMap<number, LabelInfo> = new Map([
   [-68015, { name: "bootstrap key", note: "forestrie private-use" }],
 ]);
 
-const ALG_NAMES: ReadonlyMap<number, string> = new Map([
+export const ALG_NAMES: ReadonlyMap<number, string> = new Map([
   [-7, "ES256 (ECDSA P-256 + SHA-256)"],
   [-8, "EdDSA"],
   [-35, "ES384"],
@@ -125,13 +152,13 @@ const ALG_NAMES: ReadonlyMap<number, string> = new Map([
  * the test fixtures use. Render it as the draft's unregistered codepoint,
  * never as registry fact.
  */
-const VDS_NAMES: ReadonlyMap<number, string> = new Map([
+export const VDS_NAMES: ReadonlyMap<number, string> = new Map([
   [1, "RFC9162_SHA256 (Certificate Transparency)"],
   [2, "CCF_LEDGER_SHA256"],
   [3, "MMR profile (draft-bryce, codepoint TBD)"],
 ]);
 
-const CWT_CLAIM_NAMES: ReadonlyMap<number, string> = new Map([
+export const CWT_CLAIM_NAMES: ReadonlyMap<number, string> = new Map([
   [1, "iss"],
   [2, "sub"],
   [3, "aud"],
@@ -142,7 +169,7 @@ const CWT_CLAIM_NAMES: ReadonlyMap<number, string> = new Map([
   [8, "cnf (confirmation / ephemeral key)"],
 ]);
 
-const COSE_KEY_PARAM_NAMES: ReadonlyMap<number, string> = new Map([
+export const COSE_KEY_PARAM_NAMES: ReadonlyMap<number, string> = new Map([
   [1, "kty"],
   [2, "kid"],
   [3, "alg"],
@@ -150,6 +177,17 @@ const COSE_KEY_PARAM_NAMES: ReadonlyMap<number, string> = new Map([
   [-2, "x"],
   [-3, "y"],
 ]);
+
+/** Keys inside header 396 (draft-ietf-cose-merkle-tree-proofs). */
+export const PROOF_KIND_NAMES: ReadonlyMap<number, string> = new Map([
+  [PROOFS_INCLUSION_KEY, "inclusion proofs"],
+  [PROOFS_CONSISTENCY_KEY, "consistency proofs"],
+]);
+
+/** Look up a header label name; null when unknown (the caller shows it raw). */
+export function headerLabelInfo(label: number): LabelInfo | null {
+  return HEADER_LABELS.get(label) ?? null;
+}
 
 /* ------------------------------------------------------------------ *
  * Display model

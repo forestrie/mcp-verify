@@ -1,0 +1,177 @@
+# AGENTS.md — conventions for this repo
+
+Read this before changing anything. Most of it is not style; it is the set of
+invariants that make the package's claims checkable, and each one is enforced
+by something that will go red.
+
+## The layer boundary
+
+This is the most important thing in the repo.
+
+|              | `src/core/`                                                                                                                           | `src/node/`                              |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| What it is   | Pure over bytes. The arithmetic.                                                                                                      | The adapter: MCP SDK, stdio, filesystem. |
+| Exported as  | `"."`                                                                                                                                 | `"./server"`                             |
+| **Must not** | import `node:*`, call `fetch`, read a file, touch the MCP SDK, or take a path or a base64 string as a parameter                       | leak back into `src/core`                |
+| May          | take and return `Uint8Array`                                                                                                          | do anything Node can                     |
+| Enforced by  | `pnpm run check:browser-safe` — esbuild bundles `src/core/index.ts` for `platform: "browser"` and fails on any edge to a node builtin | the same gate, from the other side       |
+
+Every core signature takes `Uint8Array`, never a path and never a base64
+string. That is what makes the gate satisfiable at all. Base64 decoding and
+`{path}` resolution both live in `src/node/resolve-input.ts`, which together
+with `src/node/fixtures.ts` is the **only** place `node:fs` appears.
+
+If `check:browser-safe` goes red without `src/core` changing, look in
+`@forestrie/merklelog` first: it holds the one `node:crypto` reference in the
+graph, behind an opaque string specifier that bundlers cannot resolve. Our gate
+inherits that property from someone else's repo.
+
+## All relative imports end in `.js`
+
+`tsconfig.json` uses `moduleResolution: "bundler"` for typechecking, but
+`tsconfig.build.json` overrides it to `NodeNext` for emit. That is deliberate:
+`bundler` resolution lets you write extensionless relative imports that Node's
+ESM loader then rejects at runtime — a failure that only appears _after
+publish_. Under `NodeNext`, `pnpm build` fails instead.
+
+So: `import { x } from "./thing.js"`, always, even from a `.ts` file.
+
+## Dependencies are exact, and bumped deliberately
+
+`@forestrie/*` and the MCP SDK are pinned to exact versions. There is no
+Renovate and no Dependabot in this estate, so exact pins are a manual-bump
+discipline, not accidental staleness — and plan-2608-05 is the record of what
+accidental staleness costs.
+
+**Never add `pnpm.overrides` for `@forestrie/encoding`.** An override would
+_silence_ the exact skew `scripts/check-encoding-single-copy.mjs` exists to
+detect, by rewriting a transitive dependency to a version its parent was never
+tested against. Two copies of a wire-type package means two CBOR codecs, and a
+verifier that disagrees with itself about the bytes is not a verifier. Today
+the pin is naturally satisfiable. If a future dependency drags a second copy
+in, fix or drop that dependency, or wait for its bump.
+
+When you bump a version, update `src/core/version.ts` in the same commit. The
+MCP smoke test asserts `PACKAGE_VERSION === package.json#version`, so a
+forgotten bump is a red test rather than a lie in `initialize`'s serverInfo.
+
+## The fixtures are frozen bytes
+
+`fixtures/golden/` is copied byte-for-byte from canopy. Regeneration is a
+deliberate act — never a casual fix for a red test. `test/core/golden-pin.test.ts`
+hashes every file against its manifest; if it goes red, something edited bytes
+that were supposed to be immovable. Read `fixtures/PROVENANCE.md` before
+touching anything under `fixtures/`.
+
+`.prettierignore` excludes `fixtures/` and `*.cbor` so a stray `--write` cannot
+reformat a manifest into something that looks like tampering.
+
+Tamper variants are **generated in tests, never committed as files**
+(`test/core/tamper.ts`). Committed tamper fixtures rot: they encode one byte
+offset of one build of one encoder, and the day the encoder moves they test
+nothing while still passing.
+
+## `src/core/decode-receipt.ts` is a placeholder for a dependency
+
+It is written fresh over the published packages because `forestrie-cli` at
+v0.7.0 is `private: true` with no importable surface. `@forestrie/forestrie-cli@0.8.0`
+(prepared, **not yet on npm**) exposes the same thing at
+`@forestrie/forestrie-cli/decode-receipt`.
+
+**When that publishes, delete this file** and re-export from the dependency.
+The public surface is deliberately name- and shape-compatible so that is a
+one-line import change. The file's own header carries the checklist; the
+non-obvious step is re-running `check:encoding-single-copy` afterwards (the CLI
+pins `encoding ^0.7.0`, so it _should_ dedupe to our exact 0.7.0 — verify, do
+not assume).
+
+We do **not** vendor code from other repos into this tree. If something is
+worth depending on, depend on it; if it is not published, either write it here
+in the open or wait.
+
+## Nothing writes to stdout in stdio mode except the transport
+
+A stray `console.log` in `src/node/**` does not produce a warning. It produces
+a malformed JSON-RPC frame and an MCP client that mysteriously fails to
+initialise. All logging goes to **stderr**.
+
+`pnpm run check:stdio-clean` spawns the real bin and asserts stdout carries
+exactly one well-formed `initialize` response and nothing else. The in-memory
+smoke test cannot catch this; only a real process can.
+
+Related: `main()` returns an exit code and does **not** call `process.exit`.
+A hard exit truncates whatever the transport had buffered.
+
+## Never a bare "valid"
+
+Every tool result carries `stages[]` (what ran) **and** `questions` (what that
+is evidence for) **and** `diagnostics[]` (what the arithmetic could not
+separate). `not_answered_at_this_rung` is a real answer and must survive to the
+user. The one-line text summary names the rung and the unanswered questions.
+
+If you find yourself simplifying an output because it seems verbose, you are
+removing the product. See `docs/trust-ladder.md`.
+
+## Two runtime behaviours that look like bugs and are not
+
+Both are asserted in `test/core/rung-table.test.ts` with comments. Read
+`docs/trust-ladder.md` before "fixing" either.
+
+1. **A flipped signature byte passes at the `known-accumulator` rung.** That
+   rung evaluates no signature; the anchor is the authority. Making it
+   re-check the signature would destroy the separation the ladder exists to
+   demonstrate.
+2. **The `known-accumulator` rung reports failures as `stage=signature`.**
+   That is upstream's label, passed through verbatim so `stages[]` stays
+   comparable with the reference CLI. The separation lives in `reason` and in
+   `questions`.
+
+## `stageRows`' unknown-stage branch
+
+`src/core/stages.ts` has a branch for a stage `VERIFY_STAGES` does not know.
+It is not dead code — it is the F3 fix. Degrading an unknown failed stage to
+four silent "skipped" rows would **hide the failure**. Do not simplify it away.
+
+## Tests
+
+```
+pnpm test              # check:browser-safe && check:encoding-single-copy && unit
+pnpm test:differential # needs the pinned forestrie CLI binary; see docs/
+pnpm typecheck
+pnpm format:check
+pnpm build
+```
+
+The unit project runs under a global forbidden `fetch` that throws
+(`test/setup/forbidden-fetch.ts`). A stack trace ending there is telling you
+that `src/core` or `src/node` reached the network — that is a bug, not a slow
+test.
+
+Both purity gates are chained into `test`, and `publish.yml` runs `pnpm test`
+before build and publish. They are **release gates, not advisory**.
+
+## Releasing
+
+`0.1.0` is a version we are willing to ship. A committed `0.0.0` would be a lie
+under the estate's "a version bump is publishing intent" policy.
+
+The whole policy for one package: merge a version-bump PR, then
+`git tag v0.1.1 && git push --tags`. `scripts/assert-publish-version.sh` makes
+a mistyped tag fail closed, and CI self-tests both its pass and fail paths on
+every PR.
+
+**Do not add `mcpName` to `package.json`, and do not create `server.json`.**
+Both are phase 3, and they must land in the same PR as the apex DNS TXT record
+on `forestrie.dev`. Adding either earlier publishes an identity claim that
+nothing backs.
+
+## Links must resolve without org access
+
+This repo is public from the first commit and its pitch is that its claims are
+checkable. Every link in the README, in `--help` text, and in `server.json`
+when it arrives, must resolve for someone with no GitHub org membership.
+
+That means **no links into** `forestrie/devdocs`, `forestrie/forestrie-agents`,
+`forestrie/thinker`, or `forestrie/product`. Where an internal document is the
+source, inline what is needed and cite it by name, not by URL. `forestrie-cli`
+and `canopy` are public and may be linked.

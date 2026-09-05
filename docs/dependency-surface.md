@@ -74,15 +74,52 @@ $ grep -nE "coseUnprotectedToMap|decodeCoseSign1" node_modules/@forestrie/encodi
 24:export { coseUnprotectedToMap } from "./cose-unprotected-map.js";
 ```
 
-**This decides O5 in favour of vendoring.** `forestrie-cli`'s
-`decode-receipt-{cbor,decode,labels}.ts` compile unchanged against
-`@forestrie/encoding@0.7.0` even though the CLI itself pins `^0.5.0`, so
-`decodeReceipt` is differential-exact by construction instead of being a
-reimplementation that guarantees divergence. See
-[`src/core/vendor/PROVENANCE.md`](../src/core/vendor/PROVENANCE.md).
+This was the blocking pre-check for O5, which asked whether to **vendor**
+`forestrie-cli`'s `decode-receipt-{cbor,decode,labels}.ts` into this tree. Both
+symbols are present, so vendoring would have compiled.
 
-Also confirmed present and used by the vendored code: `decodeCborDeterministic`,
-`CborTag`, `decodeCborUnwrapCose`, `base64UrlEncode`.
+**It was not done anyway.** Vendoring buys differential exactness at the price
+of a silent fork of 667 lines of someone else's source, and "the CLI is not on
+npm" is not a good enough reason to take that trade. `src/core/decode-receipt.ts`
+is written fresh over the published packages only — `parseReceipt` from
+`@forestrie/receipt-verify`, and `decodeCborDeterministic` /
+`coseUnprotectedToMap` / `decodeCoseSign1` / `CborTag` from
+`@forestrie/encoding@0.7.0`.
+
+It turned out to reproduce `forestrie decode-receipt --json` **exactly** —
+nested CBOR rendering of header 396 included — which the differential test now
+asserts as a full deep-equal on two different receipts. That was not assumed;
+the assertion started as a subset match and was strengthened once the runtime
+showed it held.
+
+### That file is a placeholder, and should be deleted
+
+`@forestrie/forestrie-cli@0.8.0` (prepared on the `publish-npm` branch, **not
+yet on npm**) makes the CLI a public, Node-runnable package with a pure subpath
+export `@forestrie/forestrie-cli/decode-receipt`, exposing `decodeReceipt`,
+`renderReceipt`, `DecodeReceiptError`, `toJson`, `bytesToHex`, the label tables
+and the same `DecodedReceipt` type. It imports only `@forestrie/receipt-verify`
+and `@forestrie/encoding`.
+
+Our public surface is deliberately name- and shape-compatible with it. When it
+publishes:
+
+1. `pnpm add @forestrie/forestrie-cli@0.8.0` (exact pin, like the others).
+2. Delete `src/core/decode-receipt.ts` and re-export from the dependency:
+   `export { decodeReceipt, ... } from "@forestrie/forestrie-cli/decode-receipt";`
+3. **Re-run `pnpm run check:encoding-single-copy`.** The CLI pins
+   `@forestrie/encoding ^0.7.0`, so it _should_ dedupe to our exact `0.7.0` and
+   the gate should stay green. Verify it; do not assume it. Two copies of a
+   wire-type package is two answers about the same bytes, and the correct
+   response to a red gate is to fix the pin, never to add an override.
+4. Re-run `pnpm run check:browser-safe`. The subpath is documented as
+   runtime-neutral; that gate is what proves it for _our_ module graph.
+5. Keep the differential test — it is what would catch the swap changing
+   behaviour.
+
+Also confirmed present at 0.7.0 and used by the decoder: `decodeCborDeterministic`,
+`CborTag`, `decodeCoseSign1`, `coseUnprotectedToMap`, `encodeGrantPayloadV0Canonical`,
+`decodeGrantPayload`, `verifyCoseSign1WithParsedKey`.
 
 ## 3. `@modelcontextprotocol/sdk@1.30.0` — zod 4 works directly, no `z.toJSONSchema()` needed
 
