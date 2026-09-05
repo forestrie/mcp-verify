@@ -1,0 +1,11 @@
+# mcp-verify: node + pnpm. No Bun anywhere — the package must run under
+# plain `npx` (plan-2609-02 D1/D6), and the differential test consumes the
+# forestrie CLI as a published, checksum-pinned release binary rather than
+# from source, so no Bun is needed in CI either.
+#
+# node/pnpm match the estate's CI pins so `mise install` locally and
+# jdx/mise-action in .github/workflows/ci.yml agree by construction.
+
+[tools]
+node = "22.14.0"
+pnpm = "10.6.5"
