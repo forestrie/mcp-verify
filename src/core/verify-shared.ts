@@ -1,6 +1,6 @@
 /**
  * The parts of a verify run that do not depend on which receipt kind is being
- * verified: rung dispatch for the two anchored rungs, result assembly, and
+ * verified: rung dispatch for the two accumulator roots, result assembly, and
  * the one-line human summary.
  *
  * Everything here is pure over bytes. No `node:*`, no `fetch`, no `fs` — the
@@ -140,7 +140,7 @@ export type AnchoredOutcome = {
  *
  * This is a deliberate divergence from `forestrie verify --known-accumulator`,
  * which runs the genesis/known-key offline verify FIRST and only then checks
- * the anchor, so its stage collapse survives into the anchored rung. See
+ * the anchor, so its stage collapse survives into the accumulator check. See
  * docs/differential-test.md.
  */
 export async function verifyAtKnownAccumulator(input: {
@@ -414,7 +414,7 @@ export function summarize(verb: string, result: VerifyResult): string {
         result.reason !== undefined ? ` (${result.reason})` : ""
       }`;
   const answered = (
-    ["sealing", "split-view", "authority", "attribution"] as const
+    ["sealing", "split-view", "append-authority", "attribution"] as const
   ).map((q) => {
     const a = result.questions[q];
     return `${q} ${

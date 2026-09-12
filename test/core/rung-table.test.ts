@@ -4,7 +4,7 @@
  * plan-2609-02 D3 claims a specific thing about the same bytes at two
  * different rungs, and this file is that claim in executable form. Where the
  * runtime disagreed with the table as written, the RUNTIME WON and the
- * divergence is recorded below and in docs/trust-ladder.md — a plan is a
+ * divergence is recorded below and in docs/trust-roots.md — a plan is a
  * hypothesis about arithmetic, and the arithmetic is the authority.
  *
  * ## Three places the runtime disagreed with the plan's table
@@ -39,7 +39,11 @@ import { verifyGrantReceipt } from "../../src/core/index.js";
 import type { VerifyResult } from "../../src/core/index.js";
 import { GOLDEN_MANIFEST, fromHex } from "../../src/node/fixtures.js";
 import { GENESIS, grantCases, type TamperName } from "./tamper.js";
-import { goldenAccumulatorSnapshot } from "./accumulator.js";
+import {
+  goldenAccumulatorSnapshot,
+  recomputePeak,
+  snapshotOverPeaks,
+} from "./accumulator.js";
 
 const KEY_XY = fromHex(GOLDEN_MANIFEST.grantDataHex);
 
@@ -156,6 +160,37 @@ describe("D3 — the collapse at genesis and known-log-key", () => {
 });
 
 describe("D3 — the separation at known-accumulator", () => {
+  /**
+   * The private-branch shape. The receipt is untouched and its signature is
+   * genuine, but the accumulator you trust does not hold its peak — which is
+   * exactly what a receipt from a state the operator never published looks
+   * like. At genesis it PASSES, indistinguishable from an honest receipt,
+   * because the root is material the operator controls. Here it is a
+   * split-view failure.
+   */
+  it("an untouched receipt whose peak the trusted accumulator lacks: passes at genesis, split-view fails here", async () => {
+    const c = grantCases()[0]!;
+    const { leafIndex } = await recomputePeak(c);
+    const foreign = snapshotOverPeaks(
+      [new Uint8Array(32).fill(0x11)],
+      leafIndex + 1n,
+    );
+    const lower = await run("clean", "genesis");
+    expect(cell(lower)).toEqual(PASS);
+    expect(lower.questions["split-view"].status).toBe(
+      "not_answered_at_this_rung",
+    );
+    const anchored = await verifyGrantReceipt({
+      receipt: c.receipt,
+      committedGrant: c.committedGrant,
+      entryId: c.entryId,
+      trust: { rung: "known-accumulator", accumulator: foreign },
+    });
+    expect(cell(anchored)).toEqual(PEAK_MISS);
+    expect(anchored.questions["split-view"].status).toBe("failed");
+    expect(anchored.anchor?.anchored).toBe(false);
+  });
+
   it("the clean receipt passes and split-view is answered ok", async () => {
     const r = await run("clean", "known-accumulator");
     expect(cell(r)).toEqual(PASS);
@@ -166,7 +201,7 @@ describe("D3 — the separation at known-accumulator", () => {
   });
 
   /**
-   * The payoff. At genesis these three were indistinguishable from a bad
+   * The separation. At genesis these three were indistinguishable from a bad
    * signature; here each is a distinct verdict with `split-view: failed`.
    */
   for (const name of [
@@ -200,7 +235,7 @@ describe("D3 — the separation at known-accumulator", () => {
    * If this test ever goes red because someone made the accumulator rung also
    * re-check the signature, they will have collapsed the rungs back together
    * and destroyed the separation the two tests above assert. Read
-   * docs/trust-ladder.md before "fixing" it.
+   * docs/trust-roots.md before "fixing" it.
    */
   it("a flipped signature byte PASSES here — this rung checks no signature", async () => {
     const r = await run("signature", "known-accumulator");
@@ -259,7 +294,7 @@ describe("the four questions are answered for every rung and every variant", () 
         for (const q of [
           "split-view",
           "sealing",
-          "authority",
+          "append-authority",
           "attribution",
         ] as const) {
           expect(r.questions[q], `${rung}/${c.name}/${q}`).toBeDefined();
@@ -271,9 +306,9 @@ describe("the four questions are answered for every rung and every variant", () 
     }
   });
 
-  it("authority is answered for a grant receipt and never for a payload one", async () => {
+  it("append-authority is answered for a grant receipt and never for a payload one", async () => {
     const r = await run("clean", "genesis");
-    expect(r.questions.authority.status).toBe("ok");
+    expect(r.questions["append-authority"].status).toBe("ok");
     expect(r.diagnostics.map((d) => d.code)).not.toContain(
       "grant_authority_not_checked_for_payload_receipt",
     );

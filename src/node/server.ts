@@ -122,7 +122,7 @@ export function createServer(): McpServer {
         "(Forestrie-Grant COSE Sign1, or raw grant payload CBOR plus an " +
         "entry id), at a trust rung you choose. Mirrors " +
         "`forestrie verify-grant`. This is the tool that answers the " +
-        "authority question: the leaf IS the grant.",
+        "append-authority question: the leaf IS the grant.",
       inputSchema: verifyGrantReceiptInputShape,
       outputSchema: verifyOutputShape,
       annotations,

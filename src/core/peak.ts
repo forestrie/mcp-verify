@@ -1,10 +1,10 @@
 /**
  * Recomputing a receipt's MMR peak from leaf + inclusion path.
  *
- * This is the value everything at the anchored rungs turns on: it is what
+ * This is the value everything at the accumulator roots turns on: it is what
  * gets compared against an accumulator you trust, and — because this
  * receipt's payload is detached — it is also what the COSE signature covers.
- * Which is exactly why the stages collapse at the lower rungs: you cannot
+ * Which is exactly why the stages collapse at the signature roots: you cannot
  * check the signature without first computing this, and you cannot tell a bad
  * path from a bad signature when the only evidence is that the check failed.
  *

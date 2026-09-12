@@ -2,15 +2,15 @@
  * D3's rung → four-questions mapping, plus the collapse diagnostic.
  *
  * The mapping is rung-dependent, and that is the entire point of the Auditor:
- * the same bytes answer more questions at a higher rung, and the tool says
- * which — never a bare "valid".
+ * the same bytes answer more questions under an accumulator root, and the
+ * tool says which — never a bare "valid".
  *
- * | Rung                              | sealing  | split-view       | authority | attribution |
- * |-----------------------------------|----------|------------------|-----------|-------------|
- * | genesis / known-log-key           | answered | NOT answered     | grant only| answered    |
- * | known-accumulator / checkpoint-…  | answered | answered         | grant only| answered    |
+ * | Rung                              | sealing  | split-view       | append-authority | attribution |
+ * |-----------------------------------|----------|------------------|------------------|-------------|
+ * | genesis / known-log-key           | answered | NOT answered     | grant only       | answered    |
+ * | known-accumulator / checkpoint-…  | answered | answered         | grant only       | answered    |
  *
- * "NOT answered" at the lower two rungs is not a hedge. With a
+ * "NOT answered" at the two signature roots is not a hedge. With a
  * detached-payload receipt the signature covers the MMR peak, which is only
  * knowable after recomputing it from leaf + path — so a bad path and a bad
  * signature are literally the same observation, and no amount of care can
@@ -26,9 +26,26 @@ import type {
 import type { RungName } from "./rung.js";
 import { rungAnswersSplitView } from "./rung.js";
 
-/** Which receipt kind was verified — decides the `authority` answer. */
+/** Which receipt kind was verified — decides the `append-authority` answer. */
 export type ReceiptKind = "payload" | "grant";
 
+/**
+ * The evidence bundle handed to the question generator for a single receipt.
+ *
+ * It captures everything the questioner needs to decide *which* questions are
+ * worth asking about a verification run: which trust root the receipt was checked under
+ * (`rung`, `kind`), what the arithmetic actually concluded (`ok`, `stage`), and
+ * the two conditions that can make a mechanically-`ok` result untrustworthy —
+ * a detached COSE payload (`detachedPayload`) and a missing or failed
+ * accumulator anchor (`anchored`).
+ *
+ * Invariants:
+ * - `stage` is the last stage reached, whether or not `ok` is `true`.
+ * - `anchored` is only meaningful at the accumulator/checkpoint rungs;
+ *   `undefined` means the check never ran and must not be read as a failure.
+ * - `detachedPayload === true` is a precondition for stage collapse, not
+ *   proof of it.
+ */
 export type QuestionsInput = {
   rung: RungName;
   kind: ReceiptKind;
@@ -101,7 +118,7 @@ function sealing(input: QuestionsInput): QuestionAnswer {
 /**
  * `split-view` — is this the same log everyone else sees?
  *
- * The one question the ladder is really about. Only an accumulator the caller
+ * The one question the accumulator roots exist to answer. Only an accumulator the caller
  * trusts independently of the log operator can answer it.
  */
 function splitView(input: QuestionsInput): QuestionAnswer {
@@ -130,18 +147,18 @@ function splitView(input: QuestionsInput): QuestionAnswer {
 }
 
 /**
- * `authority` — was the signer entitled to write to this log?
+ * `append-authority` — was the signer entitled to write to this log?
  *
  * Answered by `verify_grant_receipt`, whose leaf IS a grant: verifying the
  * receipt verifies that this grant was committed. `verify_receipt` verifies a
  * payload leaf and walks no grant chain, so it must say so rather than let a
  * reader assume.
  */
-function authority(input: QuestionsInput): QuestionAnswer {
+function appendAuthority(input: QuestionsInput): QuestionAnswer {
   if (input.kind !== "grant") {
     return answer(
       NOT_ANSWERED,
-      "verify_receipt checks a payload leaf and walks no grant chain; use verify_grant_receipt for the authority question",
+      "verify_receipt checks a payload leaf and walks no grant chain; use verify_grant_receipt for the append-authority question",
     );
   }
   if (input.stage === "parse") {
@@ -191,7 +208,7 @@ export function trustQuestions(input: QuestionsInput): TrustQuestions {
   return {
     sealing: sealing(input),
     "split-view": splitView(input),
-    authority: authority(input),
+    "append-authority": appendAuthority(input),
     attribution: attribution(input),
   };
 }

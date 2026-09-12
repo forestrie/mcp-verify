@@ -29,7 +29,7 @@ export type StageRow = {
 
 /** P3's four trust questions — the product's answers. */
 export type QuestionName =
-  "split-view" | "sealing" | "authority" | "attribution";
+  "split-view" | "sealing" | "append-authority" | "attribution";
 
 export type QuestionStatus = "ok" | "failed" | "not_answered_at_this_rung";
 
@@ -40,7 +40,7 @@ export type TrustQuestions = Record<QuestionName, QuestionAnswer>;
 export const QUESTION_NAMES = [
   "split-view",
   "sealing",
-  "authority",
+  "append-authority",
   "attribution",
 ] as const satisfies readonly QuestionName[];
 
@@ -55,7 +55,7 @@ export type DiagnosticCode =
   | "detached_payload_stage_collapse"
   /** This rung has no independent accumulator, so split-view is unanswered. */
   | "rung_answers_no_split_view"
-  /** verify_receipt does not walk a grant chain; authority is unanswered. */
+  /** verify_receipt does not walk a grant chain; append-authority is unanswered. */
   | "grant_authority_not_checked_for_payload_receipt"
   /** Upstream labels a peak/staleness failure at the accumulator rung as
    *  stage=signature although no signature was evaluated. Passed through

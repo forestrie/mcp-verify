@@ -157,7 +157,7 @@ export const verifyOutputShape = {
     .object({
       "split-view": QuestionAnswerSchema,
       sealing: QuestionAnswerSchema,
-      authority: QuestionAnswerSchema,
+      "append-authority": QuestionAnswerSchema,
       attribution: QuestionAnswerSchema,
     })
     .describe(

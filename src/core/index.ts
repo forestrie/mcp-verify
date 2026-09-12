@@ -45,10 +45,14 @@ export {
 
 export { VerifyInputError, summarize } from "./verify-shared.js";
 
+/** What `recomputeReceiptPeak` returns: the MMR peak the receipt's inclusion
+ *  path commits to, plus the leaf's MMR index. The peak is what gets compared
+ *  against a known accumulator; the leaf index bounds the snapshot coverage
+ *  that comparison is valid for. */
 export type { RecomputedPeak } from "./peak.js";
 /** Recompute a receipt's MMR peak from leaf + inclusion path. Exposed because
  *  building a known-accumulator snapshot for a receipt you hold needs it, and
- *  because it is the value the whole ladder turns on. */
+ *  because it is the value every trust root turns on. */
 export { recomputeReceiptPeak } from "./peak.js";
 
 export type { VerifyReceiptInput } from "./verify-receipt.js";

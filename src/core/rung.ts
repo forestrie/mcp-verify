@@ -1,6 +1,8 @@
 /**
  * D2: the trust rung is an INPUT UNION, mirroring the reference CLI's flag
- * presence (`forestrie-cli/src/options/verify.ts` documents the ladder). You
+ * presence (`forestrie-cli/src/options/verify.ts` documents the same four as
+ * a "trust ladder"; the roots are not ordered by strength, and the field name
+ * `rung` is kept only for compatibility with it). You
  * do not ask for "verification"; you say which anchor you are willing to
  * trust, and the answer tells you which questions that anchor can answer.
  *
