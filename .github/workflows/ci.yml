@@ -214,27 +214,23 @@ jobs:
       # Prove BOTH paths of the version guard on every PR. A guard that has
       # only ever been seen to pass is not a guard.
       - name: assert-publish-version self-test — pass path
-        env:
-          GITHUB_REF: refs/tags/v0.1.0
         run: |
           version=$(node -p "require('./package.json').version")
           GITHUB_REF="refs/tags/v${version}" ./scripts/assert-publish-version.sh .
 
+      # GITHUB_REF cannot be overridden via `env:` (the runner owns GITHUB_*),
+      # so each self-test sets it inline on the command, as the pass path does.
       - name: assert-publish-version self-test — fail path
-        env:
-          GITHUB_REF: refs/tags/v99.99.99
         run: |
-          if ./scripts/assert-publish-version.sh . ; then
+          if GITHUB_REF="refs/tags/v99.99.99" ./scripts/assert-publish-version.sh . ; then
             echo "::error::assert-publish-version accepted a tag that does not match package.json" >&2
             exit 1
           fi
           echo "OK: a mismatched tag is refused"
 
       - name: assert-publish-version self-test — foreign tag is refused
-        env:
-          GITHUB_REF: refs/tags/encoding-v1.0.0
         run: |
-          if ./scripts/assert-publish-version.sh . ; then
+          if GITHUB_REF="refs/tags/encoding-v1.0.0" ./scripts/assert-publish-version.sh . ; then
             echo "::error::assert-publish-version accepted a foreign tag" >&2
             exit 1
           fi
