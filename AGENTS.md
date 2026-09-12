@@ -170,7 +170,15 @@ every PR.
 5. Confirm `npm view @forestrie/mcp-verify dist.attestations` is populated.
 
 The **first** publish must be by hand: npm's trusted-publisher registration
-cannot be created for a package that does not exist yet.
+cannot be created for a package that does not exist yet. A local publish
+cannot mint provenance and `publishConfig.provenance` is `true`, so that one
+publish runs `npm publish --provenance=false`; the first attested version is
+the first one `publish.yml` ships.
+
+When registering the trusted publisher on npmjs.com, grant it **publish**
+permission, not the _stage publish_ option. A stage-only publisher makes the
+workflow fail at the registry PUT with `403 OIDC permission denied for this
+action` even though org, repo, workflow filename and environment all match.
 
 **Do not add `mcpName` to `package.json`, and do not create `server.json`.**
 Both are phase 3, and they must land in the same PR as the apex DNS TXT record
