@@ -14,8 +14,12 @@ These bytes are FROZEN test fixtures for `verify_self` / `verify --self`
 running the script again against a lane and replacing the whole directory.
 
 Verified at capture with `forestrie verify --known-log-key <log-key.xy.b64>
---receipt receipt.cbor --payload provenance.json --entry-id <entry-id.txt>`:
-PASS. Under `--genesis` the same receipt reports `delegation_invalid`: the
+--receipt receipt.cbor --payload statement.cose --entry-id <entry-id.txt>`:
+PASS. The leaf commits to the **signed statement bytes** (`statement.cose`,
+a plain COSE Sign1 whose payload is `provenance.json`), not to the raw JSON:
+the same command with `--payload provenance.json` reports
+`signature_invalid` (the detached-payload collapse). A tampered statement
+(any byte) likewise reports `signature_invalid`. Under `--genesis` the same receipt reports `delegation_invalid`: the
 genesis root vouches for the forest root log only, and nothing walks the
 grant chain to a child log yet. Nothing here is secret: the key is public,
 the grant is not included.
