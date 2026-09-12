@@ -29,7 +29,7 @@ export const KNOWN_KEY_SIGNATURE_REASON =
   "verifies under caller-known log key (not genesis-derived)";
 
 /**
- * The known-accumulator rung's own narration. Upstream's
+ * The known-accumulator root's own narration. Upstream's
  * `verifyReceiptOfflineAgainstKnownAccumulator` evaluates no signature at
  * all; a `signature: ok` row there would be a lie by omission unless it says
  * WHY it is ok. It is the same argument the CLI makes in

@@ -4,8 +4,9 @@
  *   <no args>          → StdioServerTransport; this is what
  *                        `npx -y @forestrie/mcp-verify` does (D6).
  *   demo               → run two trust roots over the bundled fixtures.
- *   verify --self      → PHASE 2. Recognised now, and refused with a version
- *                        number rather than an unknown-command error.
+ *   verify --self      → PHASE 2. Recognised now, and refused with a clear
+ *                        not-yet-available message rather than an
+ *                        unknown-command error.
  *   --help | --version → text on stdout, exit 0.
  *
  * TWO RULES, both silent-corruption bugs if broken:
@@ -37,16 +38,16 @@ const HELP = `forestrie-mcp-verify ${PACKAGE_VERSION}
 USAGE
   forestrie-mcp-verify              start the MCP server on stdio (the default)
   forestrie-mcp-verify demo         run two trust roots over the bundled fixtures
-  forestrie-mcp-verify verify --self   verify this package's own registration (v0.2.0)
+  forestrie-mcp-verify verify --self   verify this package's own registration (phase 2)
   forestrie-mcp-verify --help
   forestrie-mcp-verify --version
 
 TOOLS
-  verify_receipt         payload receipt + exact payload + entry id + trust rung
-  verify_grant_receipt   grant receipt + committed grant + trust rung
+  verify_receipt         payload receipt + exact payload + entry id + trust root
+  verify_grant_receipt   grant receipt + committed grant + trust root
   decode_receipt         CBOR to JSON. No verification.
 
-TRUST ROOTS (the "rung" field)
+TRUST ROOTS (the "root" field)
   genesis             the log's genesis document
   known-log-key       a log owner key you hold out of band
   known-accumulator   an on-chain accumulator snapshot you hold
@@ -54,8 +55,8 @@ TRUST ROOTS (the "rung" field)
 
   The root decides which of the four trust questions can be answered.
   Only known-accumulator and checkpoint-chain answer split-view. The tool
-  always says which. They are not a ladder: which root is right depends
-  on what you hold and what you need to know.
+  always says which. Which root is right depends on what you hold and
+  what you need to know.
 
 CLIENT CONFIG
   {"mcpServers": {"forestrie-verify":
@@ -91,19 +92,20 @@ export async function main(argv: readonly string[]): Promise<number> {
   if (verb === "verify") {
     if (args.includes("--self")) {
       // Recognised deliberately: an unknown-command error would suggest the
-      // feature does not exist, when the truth is that it arrives in 0.2.0
-      // with the package's own registration receipt (plan-2609-02 phase 2).
+      // feature does not exist, when the truth is that it arrives in a
+      // later release with the package's own registration receipt
+      // (plan-2609-02 phase 2).
       process.stderr.write(
-        "verify --self is not available until v0.2.0: it verifies this " +
-          "package's own registration receipt, which is not bundled yet " +
+        "verify --self is not available yet: it verifies this package's " +
+          "own registration receipt, which is not bundled yet " +
           "(plan-2609-02 phase 2).\n",
       );
       return 1;
     }
     process.stderr.write(
       "forestrie-mcp-verify: `verify` currently supports only --self " +
-        "(v0.2.0). To verify a receipt now, call the verify_receipt or " +
-        "verify_grant_receipt MCP tool, or run `demo`.\n",
+        "(not yet available). To verify a receipt now, call the " +
+        "verify_receipt or verify_grant_receipt MCP tool, or run `demo`.\n",
     );
     return 1;
   }

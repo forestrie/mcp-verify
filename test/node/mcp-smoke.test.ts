@@ -142,7 +142,7 @@ describe("resources/list", () => {
 });
 
 describe("tools/call — a real verification over the bundled fixtures", () => {
-  it("verify_grant_receipt at the genesis rung passes, with structured + text", async () => {
+  it("verify_grant_receipt at the genesis root passes, with structured + text", async () => {
     const res = await client.callTool({
       name: "verify_grant_receipt",
       arguments: {
@@ -150,22 +150,22 @@ describe("tools/call — a real verification over the bundled fixtures", () => {
         committedGrant: { b64: b64(goldenCommittedGrant()) },
         entryId: goldenEntryId(),
         trust: {
-          rung: "genesis",
+          root: "genesis",
           genesis: { b64: b64(readFixture("golden/grant-genesis.cbor")) },
         },
       },
     });
-    const structured = res.structuredContent as { ok: boolean; rung: string };
+    const structured = res.structuredContent as { ok: boolean; root: string };
     expect(structured.ok).toBe(true);
-    expect(structured.rung).toBe("genesis");
+    expect(structured.root).toBe("genesis");
 
     const content = res.content as { type: string; text: string }[];
     expect(content[0]?.type).toBe("text");
     expect(content[0]?.text.length).toBeGreaterThan(0);
-    // Never a bare "valid": the summary names the rung and the unanswered
+    // Never a bare "valid": the summary names the root and the unanswered
     // questions, which is the whole D3 point.
-    expect(content[0]?.text).toContain("rung=genesis");
-    expect(content[0]?.text).toContain("split-view not answered at this rung");
+    expect(content[0]?.text).toContain("root=genesis");
+    expect(content[0]?.text).toContain("split-view not answered at this root");
   });
 
   it("the structuredContent validates against the advertised outputSchema", async () => {
@@ -176,7 +176,7 @@ describe("tools/call — a real verification over the bundled fixtures", () => {
         committedGrant: { b64: b64(goldenCommittedGrant()) },
         entryId: goldenEntryId(),
         trust: {
-          rung: "genesis",
+          root: "genesis",
           genesis: { b64: b64(readFixture("golden/grant-genesis.cbor")) },
         },
       },
@@ -218,7 +218,7 @@ describe("tools/call — a real verification over the bundled fixtures", () => {
         committedGrant: { b64: b64(goldenCommittedGrant()) },
         entryId: "NOT-HEX",
         trust: {
-          rung: "genesis",
+          root: "genesis",
           genesis: { b64: b64(readFixture("golden/grant-genesis.cbor")) },
         },
       },

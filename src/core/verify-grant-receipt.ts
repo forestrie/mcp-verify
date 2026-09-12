@@ -1,5 +1,5 @@
 /**
- * Grant receipt verification, all four rungs. Mirrors `forestrie verify-grant`.
+ * Grant receipt verification, all four roots. Mirrors `forestrie verify-grant`.
  *
  * Two verify functions rather than one with a union, because the leaf
  * commitment preimage differs — a payload receipt commits `SHA-256(payload)`,
@@ -17,7 +17,7 @@ import {
 } from "@forestrie/receipt-verify";
 import { decodeGrantPayload, type Grant } from "@forestrie/encoding";
 import type { VerifyResult } from "./result.js";
-import type { TrustRung } from "./rung.js";
+import type { TrustRoot } from "./root.js";
 import {
   assembleResult,
   importKnownLogKey,
@@ -35,7 +35,7 @@ export type VerifyGrantReceiptInput = {
   committedGrant: Uint8Array;
   /** 32 lowercase hex. Required when the grant is raw rather than COSE. */
   entryId?: string;
-  trust: TrustRung;
+  trust: TrustRoot;
 };
 
 /**
@@ -78,9 +78,9 @@ function decodeCommittedGrant(
   return { grant, idtimestampBe8: entryIdHexToIdtimestampBe8(entryId) };
 }
 
-async function rootKeysFor(trust: TrustRung): Promise<CryptoKey[]> {
+async function rootKeysFor(trust: TrustRoot): Promise<CryptoKey[]> {
   const keys: CryptoKey[] = [];
-  if (trust.rung === "checkpoint-chain") {
+  if (trust.root === "checkpoint-chain") {
     if (trust.keyXy !== undefined) {
       keys.push(await importKnownLogKey(trust.keyXy));
     }
@@ -97,7 +97,7 @@ async function rootKeysFor(trust: TrustRung): Promise<CryptoKey[]> {
 export async function verifyGrantReceipt(
   input: VerifyGrantReceiptInput,
 ): Promise<VerifyResult> {
-  const rung = input.trust.rung;
+  const root = input.trust.root;
   const detachedPayload = isDetachedPayload(input.receipt);
 
   let grant: Grant;
@@ -113,13 +113,13 @@ export async function verifyGrantReceipt(
     // trace when the committed grant is missing, even under --json
     // (plan-2609-02 "What changed on contact" 3).
     if (err instanceof VerifyInputError) {
-      return inputFailureResult(rung, "grant", err.message);
+      return inputFailureResult(root, "grant", err.message);
     }
     throw err;
   }
 
   try {
-    switch (input.trust.rung) {
+    switch (input.trust.root) {
       case "genesis": {
         const result = await verifyGrantReceiptOffline({
           genesisCbor: input.trust.genesis,
@@ -128,7 +128,7 @@ export async function verifyGrantReceipt(
           idtimestampBe8,
         });
         return assembleResult({
-          rung,
+          root,
           kind: "grant",
           result,
           detachedPayload,
@@ -145,7 +145,7 @@ export async function verifyGrantReceipt(
           }),
         );
         return assembleResult({
-          rung,
+          root,
           kind: "grant",
           result,
           detachedPayload,
@@ -159,7 +159,7 @@ export async function verifyGrantReceipt(
           accumulatorBytes: input.trust.accumulator,
         });
         return assembleResult({
-          rung,
+          root,
           kind: "grant",
           result,
           detachedPayload,
@@ -175,7 +175,7 @@ export async function verifyGrantReceipt(
           rootKeys: await rootKeysFor(input.trust),
         });
         return assembleResult({
-          rung,
+          root,
           kind: "grant",
           result,
           detachedPayload,
@@ -185,7 +185,7 @@ export async function verifyGrantReceipt(
     }
   } catch (err) {
     if (err instanceof VerifyInputError) {
-      return inputFailureResult(rung, "grant", err.message);
+      return inputFailureResult(root, "grant", err.message);
     }
     throw err;
   }

@@ -12,7 +12,7 @@
  * the reference to fail cleanly.
  */
 import { readFileSync } from "node:fs";
-import type { TrustRung } from "../core/index.js";
+import type { TrustRoot } from "../core/index.js";
 
 export class InputError extends Error {
   constructor(message: string) {
@@ -77,43 +77,43 @@ export function resolveBytes(input: BytesInput, what = "input"): Uint8Array {
   return bytes;
 }
 
-/** The wire form of a trust rung: the same union, with bytes as BytesInput. */
-export type TrustRungInput =
-  | { rung: "genesis"; genesis: BytesInput }
-  | { rung: "known-log-key"; keyXy: BytesInput }
+/** The wire form of a trust root: the same union, with bytes as BytesInput. */
+export type TrustRootInput =
+  | { root: "genesis"; genesis: BytesInput }
+  | { root: "known-log-key"; keyXy: BytesInput }
   | {
-      rung: "known-accumulator";
+      root: "known-accumulator";
       accumulator: BytesInput;
       massif?: BytesInput;
       consistencyProof?: BytesInput;
     }
   | {
-      rung: "checkpoint-chain";
+      root: "checkpoint-chain";
       checkpoints: BytesInput[];
       genesis?: BytesInput;
       keyXy?: BytesInput;
     };
 
 /**
- * Resolve every byte-shaped field of a rung. `exactOptionalPropertyTypes` is
+ * Resolve every byte-shaped field of a root. `exactOptionalPropertyTypes` is
  * on, so optional fields are added conditionally rather than set to
  * `undefined` — the difference matters to the core's union narrowing.
  */
-export function resolveRung(input: TrustRungInput): TrustRung {
-  switch (input.rung) {
+export function resolveRoot(input: TrustRootInput): TrustRoot {
+  switch (input.root) {
     case "genesis":
       return {
-        rung: "genesis",
+        root: "genesis",
         genesis: resolveBytes(input.genesis, "trust.genesis"),
       };
     case "known-log-key":
       return {
-        rung: "known-log-key",
+        root: "known-log-key",
         keyXy: resolveBytes(input.keyXy, "trust.keyXy"),
       };
     case "known-accumulator": {
-      const out: TrustRung = {
-        rung: "known-accumulator",
+      const out: TrustRoot = {
+        root: "known-accumulator",
         accumulator: resolveBytes(input.accumulator, "trust.accumulator"),
       };
       if (input.massif !== undefined) {
@@ -131,8 +131,8 @@ export function resolveRung(input: TrustRungInput): TrustRung {
       if (input.checkpoints.length === 0) {
         throw new InputError("trust.checkpoints must not be empty");
       }
-      const out: TrustRung = {
-        rung: "checkpoint-chain",
+      const out: TrustRoot = {
+        root: "checkpoint-chain",
         checkpoints: input.checkpoints.map((c, i) =>
           resolveBytes(c, `trust.checkpoints[${i}]`),
         ),
@@ -145,7 +145,7 @@ export function resolveRung(input: TrustRungInput): TrustRung {
       }
       if (out.genesis === undefined && out.keyXy === undefined) {
         throw new InputError(
-          "the checkpoint-chain rung needs a trust root: supply trust.genesis or trust.keyXy",
+          "the checkpoint-chain root needs a trust root: supply trust.genesis or trust.keyXy",
         );
       }
       return out;

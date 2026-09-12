@@ -6,7 +6,7 @@
  *    the reference CLI's `VerifyReport` contract. This is the differential
  *    test's target and it is not ours to reinterpret.
  * 2. `questions` — rule P3's four trust questions, which are the product's
- *    answers. Each is `ok | failed | not_answered_at_this_rung`.
+ *    answers. Each is `ok | failed | not_answered_by_this_root`.
  *
  * The second exists because the first is not enough. A bare "valid" is the
  * failure mode this package was built to remove: valid *under what anchor*,
@@ -14,7 +14,7 @@
  * `diagnostics[]` names the sharp edges by machine-readable code.
  */
 import type { ReceiptVerifyStage } from "@forestrie/receipt-verify";
-import type { RungName } from "./rung.js";
+import type { RootName } from "./root.js";
 
 export type { ReceiptVerifyStage };
 
@@ -31,7 +31,7 @@ export type StageRow = {
 export type QuestionName =
   "split-view" | "sealing" | "append-authority" | "attribution";
 
-export type QuestionStatus = "ok" | "failed" | "not_answered_at_this_rung";
+export type QuestionStatus = "ok" | "failed" | "not_answered_by_this_root";
 
 export type QuestionAnswer = { status: QuestionStatus; note: string };
 
@@ -53,11 +53,11 @@ export type DiagnosticCode =
   /** Detached payload + no independent accumulator: a bad proof and a bad
    *  signature are the same observation. Plan-2609-02 D3, the collapse. */
   | "detached_payload_stage_collapse"
-  /** This rung has no independent accumulator, so split-view is unanswered. */
-  | "rung_answers_no_split_view"
+  /** This root has no independent accumulator, so split-view is unanswered. */
+  | "root_answers_no_split_view"
   /** verify_receipt does not walk a grant chain; append-authority is unanswered. */
   | "grant_authority_not_checked_for_payload_receipt"
-  /** Upstream labels a peak/staleness failure at the accumulator rung as
+  /** Upstream labels a peak/staleness failure at the accumulator root as
    *  stage=signature although no signature was evaluated. Passed through
    *  verbatim for differential fidelity; named here so nobody misreads it. */
   | "accumulator_failure_reported_at_signature_stage";
@@ -97,7 +97,7 @@ export type AnchorReport = {
  */
 export type VerifyResult = {
   ok: boolean;
-  rung: RungName;
+  root: RootName;
   stage: ReceiptVerifyStage;
   reason?: string;
   stages: StageRow[];

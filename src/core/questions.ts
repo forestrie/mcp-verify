@@ -1,11 +1,11 @@
 /**
- * D3's rung → four-questions mapping, plus the collapse diagnostic.
+ * D3's root → four-questions mapping, plus the collapse diagnostic.
  *
- * The mapping is rung-dependent, and that is the entire point of the Auditor:
+ * The mapping is root-dependent, and that is the entire point of the Auditor:
  * the same bytes answer more questions under an accumulator root, and the
  * tool says which — never a bare "valid".
  *
- * | Rung                              | sealing  | split-view       | append-authority | attribution |
+ * | Root                              | sealing  | split-view       | append-authority | attribution |
  * |-----------------------------------|----------|------------------|------------------|-------------|
  * | genesis / known-log-key           | answered | NOT answered     | grant only       | answered    |
  * | known-accumulator / checkpoint-…  | answered | answered         | grant only       | answered    |
@@ -23,8 +23,8 @@ import type {
   QuestionStatus,
   TrustQuestions,
 } from "./result.js";
-import type { RungName } from "./rung.js";
-import { rungAnswersSplitView } from "./rung.js";
+import type { RootName } from "./root.js";
+import { rootAnswersSplitView } from "./root.js";
 
 /** Which receipt kind was verified — decides the `append-authority` answer. */
 export type ReceiptKind = "payload" | "grant";
@@ -34,20 +34,20 @@ export type ReceiptKind = "payload" | "grant";
  *
  * It captures everything the questioner needs to decide *which* questions are
  * worth asking about a verification run: which trust root the receipt was checked under
- * (`rung`, `kind`), what the arithmetic actually concluded (`ok`, `stage`), and
+ * (`root`, `kind`), what the arithmetic actually concluded (`ok`, `stage`), and
  * the two conditions that can make a mechanically-`ok` result untrustworthy —
  * a detached COSE payload (`detachedPayload`) and a missing or failed
  * accumulator anchor (`anchored`).
  *
  * Invariants:
  * - `stage` is the last stage reached, whether or not `ok` is `true`.
- * - `anchored` is only meaningful at the accumulator/checkpoint rungs;
+ * - `anchored` is only meaningful at the accumulator/checkpoint roots;
  *   `undefined` means the check never ran and must not be read as a failure.
  * - `detachedPayload === true` is a precondition for stage collapse, not
  *   proof of it.
  */
 export type QuestionsInput = {
-  rung: RungName;
+  root: RootName;
   kind: ReceiptKind;
   /** The mechanical verdict of the arithmetic that actually ran. */
   ok: boolean;
@@ -56,14 +56,14 @@ export type QuestionsInput = {
   /** True when the receipt's COSE payload is detached (null) — the condition
    *  that makes the stage collapse possible at all. */
   detachedPayload: boolean;
-  /** Set only at the accumulator/checkpoint rungs: did the recomputed peak
+  /** Set only at the accumulator/checkpoint roots: did the recomputed peak
    *  match a trusted accumulator? `undefined` means the check never ran. */
   anchored?: boolean | undefined;
 };
 
-const NOT_ANSWERED: QuestionStatus = "not_answered_at_this_rung";
+const NOT_ANSWERED: QuestionStatus = "not_answered_by_this_root";
 
-const RUNG_ANCHOR_NOTE: Record<RungName, string> = {
+const ROOT_ANCHOR_NOTE: Record<RootName, string> = {
   genesis: "trust root derived from the log's genesis document",
   "known-log-key": "trust root is a log owner key you supplied out of band",
   "known-accumulator":
@@ -79,20 +79,20 @@ function answer(status: QuestionStatus, note: string): QuestionAnswer {
 /**
  * `sealing` — did the log operator's signature hold?
  *
- * Answered at every rung, but by two different arguments. At genesis and
- * known-log-key it is a local COSE check. At the accumulator rungs no
+ * Answered at every root, but by two different arguments. At genesis and
+ * known-log-key it is a local COSE check. At the accumulator roots no
  * signature is re-checked locally; the answer comes from the contract, which
  * refuses to publish a checkpoint whose signature does not verify. Both are
  * real answers; the note says which one you got.
  */
 function sealing(input: QuestionsInput): QuestionAnswer {
-  const anchoredRung = rungAnswersSplitView(input.rung);
+  const anchoredRoot = rootAnswersSplitView(input.root);
   if (input.ok) {
     return answer(
       "ok",
-      anchoredRung
+      anchoredRoot
         ? "implied by the anchor: univocity rejects a checkpoint whose signature does not verify"
-        : "checkpoint signature verified locally under the rung's trust root",
+        : "checkpoint signature verified locally under the root's trust root",
     );
   }
   if (input.stage === "parse") {
@@ -101,7 +101,7 @@ function sealing(input: QuestionsInput): QuestionAnswer {
       "the receipt did not decode, so no signature was reached",
     );
   }
-  if (anchoredRung) {
+  if (anchoredRoot) {
     return answer(
       "failed",
       "the recomputed peak is not in the trusted accumulator, so no valid publishing signature covers this receipt",
@@ -111,7 +111,7 @@ function sealing(input: QuestionsInput): QuestionAnswer {
     "failed",
     input.detachedPayload
       ? "the signature over the recomputed peak did not verify — see the stage-collapse diagnostic"
-      : "the checkpoint signature did not verify under the rung's trust root",
+      : "the checkpoint signature did not verify under the root's trust root",
   );
 }
 
@@ -122,10 +122,10 @@ function sealing(input: QuestionsInput): QuestionAnswer {
  * trusts independently of the log operator can answer it.
  */
 function splitView(input: QuestionsInput): QuestionAnswer {
-  if (!rungAnswersSplitView(input.rung)) {
+  if (!rootAnswersSplitView(input.root)) {
     return answer(
       NOT_ANSWERED,
-      "no independent accumulator at this rung: a log that showed you a private branch would verify exactly like this one",
+      "no independent accumulator at this root: a log that showed you a private branch would verify exactly like this one",
     );
   }
   if (input.stage === "parse") {
@@ -215,34 +215,34 @@ export function trustQuestions(input: QuestionsInput): TrustQuestions {
 
 /**
  * The diagnostics for a run. `detached_payload_stage_collapse` is emitted
- * exactly when the rung is genesis-or-known-log-key AND the receipt is
+ * exactly when the root is genesis-or-known-log-key AND the receipt is
  * detached-payload — the D3 claim in executable form. It is emitted on
  * success too: knowing that a PASS could not have distinguished those two
  * failures is as much a part of the trust story as the failure itself.
  */
 export function diagnosticsFor(input: QuestionsInput): Diagnostic[] {
   const out: Diagnostic[] = [];
-  const anchoredRung = rungAnswersSplitView(input.rung);
+  const anchoredRoot = rootAnswersSplitView(input.root);
 
-  if (!anchoredRung && input.detachedPayload) {
+  if (!anchoredRoot && input.detachedPayload) {
     out.push({
       code: "detached_payload_stage_collapse",
       message:
         "This receipt has a detached payload, so its signature covers the MMR peak — " +
         "a value only knowable after recomputing it from leaf + inclusion path. At the " +
-        `${input.rung} rung there is no independent accumulator to check that peak against, ` +
+        `${input.root} root there is no independent accumulator to check that peak against, ` +
         "so a tampered inclusion path, a tampered committed payload and a tampered signature " +
         "are indistinguishable: all three report stage=signature. Re-run at the " +
-        "known-accumulator rung to separate them.",
+        "known-accumulator root to separate them.",
     });
   }
 
-  if (!anchoredRung) {
+  if (!anchoredRoot) {
     out.push({
-      code: "rung_answers_no_split_view",
+      code: "root_answers_no_split_view",
       message:
-        `The ${input.rung} rung answers sealing and attribution but not split-view. ` +
-        `${RUNG_ANCHOR_NOTE[input.rung]}, and that root is not independent evidence about ` +
+        `The ${input.root} root answers sealing and attribution but not split-view. ` +
+        `${ROOT_ANCHOR_NOTE[input.root]}, and that root is not independent evidence about ` +
         "which log state the rest of the world sees. A log that showed you a private branch " +
         "would produce a receipt that verifies exactly like this one.",
     });
@@ -259,7 +259,7 @@ export function diagnosticsFor(input: QuestionsInput): Diagnostic[] {
   }
 
   if (
-    anchoredRung &&
+    anchoredRoot &&
     !input.ok &&
     input.stage === "signature" &&
     input.anchored === false
@@ -269,7 +269,7 @@ export function diagnosticsFor(input: QuestionsInput): Diagnostic[] {
       message:
         "stage=signature here is @forestrie/receipt-verify's label for an accumulator " +
         "check that failed, not the result of evaluating a signature — no signature was " +
-        "evaluated at this rung. The reason field carries the real verdict " +
+        "evaluated at this root. The reason field carries the real verdict " +
         "(peak_not_in_known_accumulator or receipt_newer_than_known_accumulator). " +
         "Passed through verbatim so stages[] stays comparable with the reference CLI.",
     });

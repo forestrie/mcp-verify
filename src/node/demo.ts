@@ -15,7 +15,7 @@ import {
   recomputeReceiptPeak,
   summarize,
   verifyGrantReceipt,
-  type TrustRung,
+  type TrustRoot,
   type VerifyResult,
 } from "../core/index.js";
 import {
@@ -129,7 +129,7 @@ export async function runDemo(write: Writer): Promise<number> {
   write("");
 
   const at = (
-    trust: TrustRung,
+    trust: TrustRoot,
     over: Partial<{
       receipt: Uint8Array;
       entryId: string;
@@ -142,21 +142,21 @@ export async function runDemo(write: Writer): Promise<number> {
       trust,
     });
 
-  const genesisRung: TrustRung = { rung: "genesis", genesis };
+  const genesisRoot: TrustRoot = { root: "genesis", genesis };
 
   write("── Trust root: genesis ───────────────────────────────────────────");
   write("The log's own genesis document is the trust root.");
   write("");
-  printResult(write, "the frozen receipt, untouched:", await at(genesisRung));
+  printResult(write, "the frozen receipt, untouched:", await at(genesisRoot));
   printResult(
     write,
     "the same receipt, one SIGNATURE byte flipped:",
-    await at(genesisRung, { receipt: tamperSignature(receipt) }),
+    await at(genesisRoot, { receipt: tamperSignature(receipt) }),
   );
   printResult(
     write,
     "the same receipt, a wrong IDTIMESTAMP:",
-    await at(genesisRung, { entryId: tamperEntryId(entryId) }),
+    await at(genesisRoot, { entryId: tamperEntryId(entryId) }),
   );
 
   write("Look at those last two. Different tampers. Same answer:");
@@ -172,8 +172,8 @@ export async function runDemo(write: Writer): Promise<number> {
   write("");
 
   const snapshot = await deriveSnapshot();
-  const accumulatorRung: TrustRung = {
-    rung: "known-accumulator",
+  const accumulatorRoot: TrustRoot = {
+    root: "known-accumulator",
     accumulator: snapshot,
   };
 
@@ -193,16 +193,16 @@ export async function runDemo(write: Writer): Promise<number> {
   printResult(
     write,
     "the frozen receipt, untouched:",
-    await at(accumulatorRung),
+    await at(accumulatorRoot),
   );
   printResult(
     write,
     "the same receipt, a wrong IDTIMESTAMP:",
-    await at(accumulatorRung, { entryId: tamperEntryId(entryId) }),
+    await at(accumulatorRoot, { entryId: tamperEntryId(entryId) }),
   );
 
   write("Same bytes. More questions answered. split-view went from");
-  write("'not answered at this rung' to a real verdict, and the idtimestamp");
+  write("'not answered at this root' to a real verdict, and the idtimestamp");
   write("tamper is now peak_not_in_known_accumulator instead of an");
   write("indistinguishable signature failure.");
   write("");
@@ -211,7 +211,7 @@ export async function runDemo(write: Writer): Promise<number> {
   printResult(
     write,
     "one SIGNATURE byte flipped, under the accumulator root:",
-    await at(accumulatorRung, { receipt: tamperSignature(receipt) }),
+    await at(accumulatorRoot, { receipt: tamperSignature(receipt) }),
   );
   write("It PASSES. This root evaluates no signature at all. The recomputed");
   write("peak comes from leaf + inclusion path, neither of which a signature");

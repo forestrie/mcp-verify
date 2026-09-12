@@ -24,11 +24,11 @@ export const BytesInputSchema = z
   ])
   .describe("Bytes as base64, or a path the local server reads");
 
-export const TrustRungSchema = z
-  .discriminatedUnion("rung", [
+export const TrustRootSchema = z
+  .discriminatedUnion("root", [
     z
       .object({
-        rung: z.literal("genesis"),
+        root: z.literal("genesis"),
         genesis: BytesInputSchema,
       })
       .describe(
@@ -37,7 +37,7 @@ export const TrustRungSchema = z
       ),
     z
       .object({
-        rung: z.literal("known-log-key"),
+        root: z.literal("known-log-key"),
         keyXy: BytesInputSchema.describe("raw 64-byte P-256 x||y"),
       })
       .describe(
@@ -46,7 +46,7 @@ export const TrustRungSchema = z
       ),
     z
       .object({
-        rung: z.literal("known-accumulator"),
+        root: z.literal("known-accumulator"),
         accumulator: BytesInputSchema.describe(
           "encodeKnownAccumulator snapshot bytes",
         ),
@@ -54,13 +54,13 @@ export const TrustRungSchema = z
         consistencyProof: BytesInputSchema.optional(),
       })
       .describe(
-        "Trust an on-chain accumulator snapshot you hold. The only rung that " +
+        "Trust an on-chain accumulator snapshot you hold. The only root that " +
           "answers split-view. Checks no signature locally — the anchor is the " +
           "authority.",
       ),
     z
       .object({
-        rung: z.literal("checkpoint-chain"),
+        root: z.literal("checkpoint-chain"),
         checkpoints: z
           .array(BytesInputSchema)
           .min(1)
@@ -86,7 +86,7 @@ export const verifyReceiptInputShape = {
     .string()
     .regex(/^[0-9a-f]{32}$/)
     .describe("32 lowercase hex: idtimestamp_be8 || mmrIndex_be8"),
-  trust: TrustRungSchema,
+  trust: TrustRootSchema,
 };
 
 export const verifyGrantReceiptInputShape = {
@@ -99,7 +99,7 @@ export const verifyGrantReceiptInputShape = {
     .regex(/^[0-9a-f]{32}$/)
     .optional()
     .describe("required when committedGrant is a raw payload"),
-  trust: TrustRungSchema,
+  trust: TrustRootSchema,
 };
 
 export const decodeReceiptInputShape = {
@@ -115,7 +115,7 @@ const StageRowSchema = z.object({
 });
 
 const QuestionAnswerSchema = z.object({
-  status: z.enum(["ok", "failed", "not_answered_at_this_rung"]),
+  status: z.enum(["ok", "failed", "not_answered_by_this_root"]),
   note: z.string(),
 });
 
@@ -141,7 +141,7 @@ const AnchorSchema = z.object({
  */
 export const verifyOutputShape = {
   ok: z.boolean(),
-  rung: z.enum([
+  root: z.enum([
     "genesis",
     "known-log-key",
     "known-accumulator",
@@ -161,7 +161,7 @@ export const verifyOutputShape = {
       attribution: QuestionAnswerSchema,
     })
     .describe(
-      "the four trust questions. 'not_answered_at_this_rung' is a real " +
+      "the four trust questions. 'not_answered_by_this_root' is a real " +
         "answer and must be shown to the user, never collapsed into a pass.",
     ),
   diagnostics: z

@@ -13,8 +13,8 @@
  * and `{path}` resolution both live in `src/node/resolve-input.ts`.
  */
 
-export type { TrustRung, RungName } from "./rung.js";
-export { RUNG_NAMES, isTrustRung, rungAnswersSplitView } from "./rung.js";
+export type { TrustRoot, RootName } from "./root.js";
+export { ROOT_NAMES, isTrustRoot, rootAnswersSplitView } from "./root.js";
 
 export type {
   AnchorReport,
@@ -56,12 +56,12 @@ export type { RecomputedPeak } from "./peak.js";
 export { recomputeReceiptPeak } from "./peak.js";
 
 export type { VerifyReceiptInput } from "./verify-receipt.js";
-/** Payload receipt: exact registered payload + entry id + rung.
+/** Payload receipt: exact registered payload + entry id + root.
  *  Mirrors `forestrie verify`. */
 export { verifyReceipt } from "./verify-receipt.js";
 
 export type { VerifyGrantReceiptInput } from "./verify-grant-receipt.js";
-/** Grant receipt: committed grant (COSE or raw payload) + rung.
+/** Grant receipt: committed grant (COSE or raw payload) + root.
  *  Mirrors `forestrie verify-grant`. */
 export { verifyGrantReceipt } from "./verify-grant-receipt.js";
 

@@ -1,7 +1,7 @@
 /**
  * Building a known-accumulator snapshot for the golden grant receipt.
  *
- * **Read this before trusting what the accumulator-rung tests prove.**
+ * **Read this before trusting what the accumulator-root tests prove.**
  *
  * The golden fixture set has no accumulator artifact — it is a genesis +
  * receipt pair. So the snapshot here is *derived from the receipt's own
@@ -16,7 +16,7 @@
  * and then held fixed while the receipt is tampered. A flipped inclusion-path
  * byte changes the recomputed peak, which is then no longer in the accumulator
  * — and that failure is reported distinctly from a flipped signature byte,
- * which at the genesis rung it is not. That is the whole claim, and a
+ * which at the genesis root it is not. That is the whole claim, and a
  * derived-but-fixed accumulator exercises it honestly.
  *
  * An independent snapshot would be strictly better and belongs in the shared
@@ -25,7 +25,7 @@
  *
  * The peak recompute itself lives in `src/core/peak.ts` — the package needs it
  * anyway, to report WHICH accumulator peak a receipt matched and to run the
- * demo's second rung.
+ * demo's second root.
  */
 import {
   encodeKnownAccumulator,
@@ -75,7 +75,7 @@ export function snapshotOverPeaks(
 }
 
 /**
- * The snapshot the rung-table tests hold fixed across every tamper variant.
+ * The snapshot the root-table tests hold fixed across every tamper variant.
  * Built once from the CLEAN golden receipt; `size` is one past the leaf so
  * the receipt is covered rather than newer-than-snapshot.
  */

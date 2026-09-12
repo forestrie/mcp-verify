@@ -12,7 +12,7 @@
  *
  * Every handler returns BOTH `structuredContent` (the full result) and a
  * one-line `content[0].text` summary. The summary is what a human reads in the
- * transcript, and it must never be a bare "valid" — it names the rung and
+ * transcript, and it must never be a bare "valid" — it names the root and
  * which questions went unanswered (D3).
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -25,8 +25,8 @@ import {
   verifyReceipt,
   type VerifyResult,
 } from "../core/index.js";
-import { InputError, resolveBytes, resolveRung } from "./resolve-input.js";
-import type { BytesInput, TrustRungInput } from "./resolve-input.js";
+import { InputError, resolveBytes, resolveRoot } from "./resolve-input.js";
+import type { BytesInput, TrustRootInput } from "./resolve-input.js";
 import {
   decodeOutputShape,
   decodeReceiptInputShape,
@@ -71,8 +71,8 @@ export function createServer(): McpServer {
       instructions:
         "Offline Forestrie receipt verification. Every tool is pure over " +
         "bytes: no network, no account, no key, no backend. Choose a trust " +
-        "rung deliberately — the answer tells you which of the four trust " +
-        "questions that rung can answer, and 'not_answered_at_this_rung' is " +
+        "root deliberately — the answer tells you which of the four trust " +
+        "questions that root can answer, and 'not_answered_by_this_root' is " +
         "a real answer that must be shown to the user.",
     },
   );
@@ -90,7 +90,7 @@ export function createServer(): McpServer {
       title: "Verify a payload receipt",
       description:
         "Verify a Forestrie receipt against the EXACT registered payload " +
-        "bytes and an entry id, at a trust rung you choose. Mirrors " +
+        "bytes and an entry id, at a trust root you choose. Mirrors " +
         "`forestrie verify`. Offline: no network, no key, no account. " +
         "Returns both the mechanical stages and the four trust questions.",
       inputSchema: verifyReceiptInputShape,
@@ -103,7 +103,7 @@ export function createServer(): McpServer {
           receipt: resolveBytes(args.receipt as BytesInput, "receipt"),
           payload: resolveBytes(args.payload as BytesInput, "payload"),
           entryId: args.entryId,
-          trust: resolveRung(args.trust as TrustRungInput),
+          trust: resolveRoot(args.trust as TrustRootInput),
         });
         return verifyResult("verify", result);
       } catch (err) {
@@ -120,7 +120,7 @@ export function createServer(): McpServer {
       description:
         "Verify a Forestrie grant receipt against the committed grant " +
         "(Forestrie-Grant COSE Sign1, or raw grant payload CBOR plus an " +
-        "entry id), at a trust rung you choose. Mirrors " +
+        "entry id), at a trust root you choose. Mirrors " +
         "`forestrie verify-grant`. This is the tool that answers the " +
         "append-authority question: the leaf IS the grant.",
       inputSchema: verifyGrantReceiptInputShape,
@@ -136,7 +136,7 @@ export function createServer(): McpServer {
             "committedGrant",
           ),
           ...(args.entryId !== undefined ? { entryId: args.entryId } : {}),
-          trust: resolveRung(args.trust as TrustRungInput),
+          trust: resolveRoot(args.trust as TrustRootInput),
         });
         return verifyResult("verify-grant", result);
       } catch (err) {
@@ -219,7 +219,7 @@ function registerFixtureResources(server: McpServer): void {
         rel: "golden/grant-genesis.cbor",
         title: "Golden genesis document",
         description:
-          "The forest-genesis document for the golden log. The genesis rung's trust root.",
+          "The forest-genesis document for the golden log — what the `genesis` root trusts.",
       },
       {
         rel: "golden/grant-receipt.cbor",
@@ -237,7 +237,7 @@ function registerFixtureResources(server: McpServer): void {
         rel: `golden/burial/${file}`,
         title: `Retained checkpoint ${file}`,
         description:
-          "One link of the retained .sth chain the checkpoint-chain rung folds.",
+          "One link of the retained .sth chain the checkpoint-chain root folds.",
       })),
     ];
 

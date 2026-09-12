@@ -1,6 +1,6 @@
 /**
  * The parts of a verify run that do not depend on which receipt kind is being
- * verified: rung dispatch for the two accumulator roots, result assembly, and
+ * verified: root dispatch for the two accumulator roots, result assembly, and
  * the one-line human summary.
  *
  * Everything here is pure over bytes. No `node:*`, no `fetch`, no `fs` — the
@@ -21,8 +21,8 @@ import {
 import { verifyCoseSign1WithParsedKey } from "@forestrie/encoding";
 import { bytesEqual, recomputeReceiptPeak } from "./peak.js";
 import type { AnchorReport, Diagnostic, VerifyResult } from "./result.js";
-import type { RungName, TrustRung } from "./rung.js";
-import { rungAnswersSplitView } from "./rung.js";
+import type { RootName, TrustRoot } from "./root.js";
+import { rootAnswersSplitView } from "./root.js";
 import {
   anchoredStageRows,
   knownKeyStageRows,
@@ -127,16 +127,16 @@ export type AnchoredOutcome = {
 };
 
 /**
- * The known-accumulator rung.
+ * The known-accumulator root.
  *
  * NOTE what this does NOT do: it checks no signature. That is deliberate and
- * it is the whole reason the rung separates what genesis cannot. An anchored
+ * it is the whole reason the root separates what genesis cannot. An anchored
  * peak match implies a valid publishing signature, because univocity refuses
  * to publish a checkpoint whose signature does not verify under the log's
  * live delegation — so the accumulator you trust IS the authority, and the
  * arithmetic that runs is pure inclusion + binding. A tampered inclusion path
  * therefore fails HERE with `peak_not_in_known_accumulator`, where at the
- * genesis rung it was indistinguishable from a bad signature.
+ * genesis root it was indistinguishable from a bad signature.
  *
  * This is a deliberate divergence from `forestrie verify --known-accumulator`,
  * which runs the genesis/known-key offline verify FIRST and only then checks
@@ -216,7 +216,7 @@ function makeCheckpointSignatureVerifier(
 }
 
 /**
- * The checkpoint-chain rung: fold the retained `.sth` chain, then match the
+ * The checkpoint-chain root: fold the retained `.sth` chain, then match the
  * receipt against ANY authenticated link — later links' signed consistency
  * proofs commit an earlier accumulator forward, so burial never turns an
  * honest receipt tamper-shaped.
@@ -234,7 +234,7 @@ export async function verifyAtCheckpointChain(input: {
 }): Promise<AnchoredOutcome> {
   if (input.rootKeys.length === 0) {
     throw new VerifyInputError(
-      "the checkpoint-chain rung needs an ES256 trust root: supply `genesis` or `keyXy` alongside `checkpoints`",
+      "the checkpoint-chain root needs an ES256 trust root: supply `genesis` or `keyXy` alongside `checkpoints`",
     );
   }
   const chain = await verifyCheckpointChain({
@@ -337,25 +337,25 @@ export function remapKnownKeyFailure(
 }
 
 export type AssembleInput = {
-  rung: RungName;
+  root: RootName;
   kind: ReceiptKind;
   result: ReceiptVerifyResult;
   detachedPayload: boolean | undefined;
   anchor?: AnchorReport | undefined;
 };
 
-/** Build the D3 result from the mechanical verdict plus the rung context. */
+/** Build the D3 result from the mechanical verdict plus the root context. */
 export function assembleResult(input: AssembleInput): VerifyResult {
-  const anchoredRung = rungAnswersSplitView(input.rung);
+  const anchoredRoot = rootAnswersSplitView(input.root);
   const rows =
-    input.rung === "known-log-key"
+    input.root === "known-log-key"
       ? knownKeyStageRows(input.result)
-      : anchoredRung
+      : anchoredRoot
         ? anchoredStageRows(input.result)
         : stageRows(input.result);
 
   const questionsInput = {
-    rung: input.rung,
+    root: input.root,
     kind: input.kind,
     ok: input.result.ok,
     stage: input.result.stage,
@@ -365,7 +365,7 @@ export function assembleResult(input: AssembleInput): VerifyResult {
 
   const out: VerifyResult = {
     ok: input.result.ok,
-    rung: input.rung,
+    root: input.root,
     stage: input.result.stage,
     stages: rows,
     questions: trustQuestions(questionsInput),
@@ -382,19 +382,19 @@ export function assembleResult(input: AssembleInput): VerifyResult {
 }
 
 /**
- * A result for an input that never reached the arithmetic — a rung whose
+ * A result for an input that never reached the arithmetic — a root whose
  * bytes did not decode, say. Reported as a clean `parse` failure rather than
  * a thrown stack trace, because the reference implementation's habit of
  * crashing on a missing required argument (plan-2609-02 "What changed on
  * contact" 3) is exactly what this layer exists not to reproduce.
  */
 export function inputFailureResult(
-  rung: RungName,
+  root: RootName,
   kind: ReceiptKind,
   reason: string,
 ): VerifyResult {
   return assembleResult({
-    rung,
+    root,
     kind,
     result: { ok: false, stage: "parse", reason },
     detachedPayload: undefined,
@@ -405,7 +405,7 @@ export function inputFailureResult(
  * The sentence a human reads in an agent transcript. It must never be a bare
  * "valid" (D3): the anchor and the unanswered questions are the point.
  *
- * `verify-grant: FAILED at signature (signature_invalid) · rung=genesis · sealing failed, split-view not answered at this rung`
+ * `verify-grant: FAILED at signature (signature_invalid) · root=genesis · sealing failed, split-view not answered at this root`
  */
 export function summarize(verb: string, result: VerifyResult): string {
   const head = result.ok
@@ -418,12 +418,12 @@ export function summarize(verb: string, result: VerifyResult): string {
   ).map((q) => {
     const a = result.questions[q];
     return `${q} ${
-      a.status === "not_answered_at_this_rung"
-        ? "not answered at this rung"
+      a.status === "not_answered_by_this_root"
+        ? "not answered at this root"
         : a.status
     }`;
   });
-  return `${head} · rung=${result.rung} · ${answered.join(", ")}`;
+  return `${head} · root=${result.root} · ${answered.join(", ")}`;
 }
 
 /** Exported for tests that assert the stage vocabulary has not drifted. */

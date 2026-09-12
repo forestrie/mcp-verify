@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
 import {
   InputError,
   resolveBytes,
-  resolveRung,
+  resolveRoot,
 } from "../../src/node/resolve-input.js";
 import { readFixture } from "../../src/node/fixtures.js";
 
@@ -72,18 +72,18 @@ describe("resolveBytes", () => {
   });
 });
 
-describe("resolveRung", () => {
+describe("resolveRoot", () => {
   it("resolves genesis", () => {
-    const r = resolveRung({ rung: "genesis", genesis: { b64: b64(RECEIPT) } });
-    expect(r).toEqual({ rung: "genesis", genesis: RECEIPT });
+    const r = resolveRoot({ root: "genesis", genesis: { b64: b64(RECEIPT) } });
+    expect(r).toEqual({ root: "genesis", genesis: RECEIPT });
   });
 
   it("resolves known-log-key from a path", () => {
-    const r = resolveRung({
-      rung: "known-log-key",
+    const r = resolveRoot({
+      root: "known-log-key",
       keyXy: { path: receiptPath },
     });
-    expect(r).toEqual({ rung: "known-log-key", keyXy: RECEIPT });
+    expect(r).toEqual({ root: "known-log-key", keyXy: RECEIPT });
   });
 
   /**
@@ -91,8 +91,8 @@ describe("resolveRung", () => {
    * not present-and-undefined. The core's union narrowing depends on it.
    */
   it("omits absent optionals rather than setting them to undefined", () => {
-    const r = resolveRung({
-      rung: "known-accumulator",
+    const r = resolveRoot({
+      root: "known-accumulator",
       accumulator: { b64: b64(RECEIPT) },
     });
     expect(Object.hasOwn(r, "massif")).toBe(false);
@@ -100,28 +100,28 @@ describe("resolveRung", () => {
   });
 
   it("carries present optionals through", () => {
-    const r = resolveRung({
-      rung: "known-accumulator",
+    const r = resolveRoot({
+      root: "known-accumulator",
       accumulator: { b64: b64(RECEIPT) },
       massif: { path: receiptPath },
     });
-    expect(r).toMatchObject({ rung: "known-accumulator", massif: RECEIPT });
+    expect(r).toMatchObject({ root: "known-accumulator", massif: RECEIPT });
   });
 
   it("resolves a checkpoint chain in order", () => {
-    const r = resolveRung({
-      rung: "checkpoint-chain",
+    const r = resolveRoot({
+      root: "checkpoint-chain",
       checkpoints: [{ path: receiptPath }, { b64: b64(RECEIPT) }],
       keyXy: { b64: b64(RECEIPT) },
     });
-    expect(r).toMatchObject({ rung: "checkpoint-chain" });
-    if (r.rung === "checkpoint-chain") expect(r.checkpoints).toHaveLength(2);
+    expect(r).toMatchObject({ root: "checkpoint-chain" });
+    if (r.root === "checkpoint-chain") expect(r.checkpoints).toHaveLength(2);
   });
 
   it("refuses an empty checkpoint chain", () => {
     expect(() =>
-      resolveRung({
-        rung: "checkpoint-chain",
+      resolveRoot({
+        root: "checkpoint-chain",
         checkpoints: [],
         keyXy: { b64: b64(RECEIPT) },
       }),
@@ -134,8 +134,8 @@ describe("resolveRung", () => {
    */
   it("refuses a checkpoint chain with no trust root, naming the remedy", () => {
     expect(() =>
-      resolveRung({
-        rung: "checkpoint-chain",
+      resolveRoot({
+        root: "checkpoint-chain",
         checkpoints: [{ b64: b64(RECEIPT) }],
       }),
     ).toThrow(/trust.genesis or trust.keyXy/);
@@ -143,8 +143,8 @@ describe("resolveRung", () => {
 
   it("names the offending checkpoint index", () => {
     expect(() =>
-      resolveRung({
-        rung: "checkpoint-chain",
+      resolveRoot({
+        root: "checkpoint-chain",
         checkpoints: [{ b64: b64(RECEIPT) }, { path: join(dir, "nope") }],
         keyXy: { b64: b64(RECEIPT) },
       }),
