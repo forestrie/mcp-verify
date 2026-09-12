@@ -53,8 +53,10 @@
     "src",
     "bin",
     "fixtures",
+    "docs",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "TRANSPARENCY.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
