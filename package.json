@@ -53,6 +53,7 @@
     "src",
     "bin",
     "fixtures",
+    "fixtures/self",
     "docs",
     "LICENSE",
     "README.md",
