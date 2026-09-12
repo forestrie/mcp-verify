@@ -68,13 +68,12 @@ describe("initialize", () => {
 describe("tools/list", () => {
   it("returns exactly the three phase-1 tools", async () => {
     const { tools } = await client.listTools();
-    // Four after phase 2 — update this in the SAME PR that adds verify_self,
-    // never before. A tool list that drifts ahead of the code is how an agent
-    // learns to call something that is not there.
+    // Four, since plan-2609-02 step 2.4 added verify_self.
     expect(tools.map((t) => t.name).sort()).toEqual([
       "decode_receipt",
       "verify_grant_receipt",
       "verify_receipt",
+      "verify_self",
     ]);
   });
 
@@ -119,9 +118,12 @@ describe("resources/list", () => {
     expect(uris).toContain("forestrie://fixtures/golden/manifest.json");
   });
 
-  it("reserves but does not register the forestrie://self namespace", async () => {
+  it("does not register the forestrie://self namespace when fixtures/self/ is absent", async () => {
     const { resources } = await client.listResources();
-    // Phase 2. An unregistered namespace beats one that resolves to nothing.
+    // fixtures/self/ is generated at release time and gitignored (never
+    // committed), so a normal checkout has none of these files and this
+    // package registers no resource that would resolve to nothing.
+    // test/node/self.test.ts covers the populated case.
     expect(
       resources.filter((r) => r.uri.startsWith("forestrie://self/")),
     ).toEqual([]);
@@ -224,5 +226,22 @@ describe("tools/call — a real verification over the bundled fixtures", () => {
       },
     });
     expect(res.isError).toBe(true);
+  });
+
+  /**
+   * The absent-bundle case is the normal state for this checkout (see the
+   * resources/list test above): `fixtures/self/` is generated at release
+   * time and gitignored, so a repo clone has none of it. verify_self must
+   * say so clearly rather than throw. test/node/self.test.ts covers the
+   * populated case end to end (both the tool and `verify --self`).
+   */
+  it("verify_self errors clearly when fixtures/self/ is absent", async () => {
+    const res = await client.callTool({ name: "verify_self", arguments: {} });
+    expect(res.isError).toBe(true);
+    expect(res.structuredContent).toBeUndefined();
+    const content = res.content as { text: string }[];
+    expect(content[0]?.text).toContain(
+      "this checkout was not produced by a release",
+    );
   });
 });

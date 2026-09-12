@@ -18,6 +18,7 @@ import {
   fixturePath,
   readFixture,
 } from "../../src/node/fixtures.js";
+import { SELF_BUNDLE_DIR, SELF_BUNDLE_MANIFEST } from "./self-bundle.js";
 
 const sha256 = (bytes: Uint8Array): string =>
   createHash("sha256").update(bytes).digest("hex");
@@ -57,6 +58,33 @@ describe("golden vectors (frozen bytes)", () => {
     expect(GOLDEN_MANIFEST.grantDataHex).toHaveLength(128);
     expect(GOLDEN_MANIFEST.idtimestampBe8Hex).toHaveLength(16);
     expect(BURIAL_MANIFEST.finalAccumulatorHex.length).toBeGreaterThan(0);
+  });
+});
+
+describe("the self-registration bundle (frozen bytes, test/fixtures/self-bundle)", () => {
+  /**
+   * A real bundle captured once against lane A (see PROVENANCE.md in that
+   * directory), frozen the same way the golden vectors above are: this pin
+   * is what makes "these bytes never move" true rather than aspirational.
+   */
+  it("every bundled file matches manifest.json's sha256", () => {
+    for (const [name, expected] of Object.entries(
+      SELF_BUNDLE_MANIFEST.files,
+    )) {
+      const bytes = readFileSync(join(SELF_BUNDLE_DIR, name));
+      expect(sha256(new Uint8Array(bytes)), name).toBe(expected);
+    }
+  });
+
+  it("the manifest names exactly the six bundle files verifySelf needs", () => {
+    expect(Object.keys(SELF_BUNDLE_MANIFEST.files).sort()).toEqual([
+      "entry-id.txt",
+      "genesis.cbor",
+      "log-key.xy.b64",
+      "provenance.json",
+      "receipt.cbor",
+      "statement.cose",
+    ]);
   });
 });
 
