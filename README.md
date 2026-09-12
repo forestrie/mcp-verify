@@ -93,6 +93,11 @@ Which is why this repo goes to some trouble to make that re-running possible:
 The verification itself is `@forestrie/receipt-verify@1.0.0`, which is
 published, MIT, and SLSA-attested independently of this package.
 
+At release time, this package also registers its own provenance in a
+Forestrie log and ships the receipt inside the tarball — two independent
+trust roots, npm's SLSA provenance and a Forestrie receipt, rather than one
+circular one. See [docs/self-registration.md](docs/self-registration.md).
+
 ## Development
 
 ```
