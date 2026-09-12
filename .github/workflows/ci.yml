@@ -260,3 +260,60 @@ jobs:
             exit 1
           fi
           echo "OK: a tag build can never be a rehearsal"
+
+      # plan-2609-02 step 3.3 — server.json can't read version/name from
+      # package.json at build time (it's a static file the registry fetches
+      # directly), so prove both paths of the guard that keeps them honest.
+      - name: assert-server-json self-test — pass path
+        run: node scripts/assert-server-json.mjs .
+
+      - name: assert-server-json self-test — server.json#version mismatch is refused
+        run: |
+          scratch=$(mktemp -d)
+          node -e '
+            const fs = require("fs");
+            const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            const server = JSON.parse(fs.readFileSync("server.json", "utf8"));
+            server.version = "0.0.0-mismatch";
+            fs.writeFileSync(process.argv[1] + "/package.json", JSON.stringify(pkg));
+            fs.writeFileSync(process.argv[1] + "/server.json", JSON.stringify(server));
+          ' "$scratch"
+          if node scripts/assert-server-json.mjs "$scratch" ; then
+            echo "::error::assert-server-json accepted a server.json version that does not match package.json" >&2
+            exit 1
+          fi
+          echo "OK: a server.json#version mismatch is refused"
+
+      - name: assert-server-json self-test — packages[0].version mismatch is refused
+        run: |
+          scratch=$(mktemp -d)
+          node -e '
+            const fs = require("fs");
+            const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            const server = JSON.parse(fs.readFileSync("server.json", "utf8"));
+            server.packages[0].version = "0.0.0-mismatch";
+            fs.writeFileSync(process.argv[1] + "/package.json", JSON.stringify(pkg));
+            fs.writeFileSync(process.argv[1] + "/server.json", JSON.stringify(server));
+          ' "$scratch"
+          if node scripts/assert-server-json.mjs "$scratch" ; then
+            echo "::error::assert-server-json accepted a packages[0].version that does not match package.json" >&2
+            exit 1
+          fi
+          echo "OK: a packages[0].version mismatch is refused"
+
+      - name: assert-server-json self-test — name/mcpName mismatch is refused
+        run: |
+          scratch=$(mktemp -d)
+          node -e '
+            const fs = require("fs");
+            const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            const server = JSON.parse(fs.readFileSync("server.json", "utf8"));
+            server.name = "dev.forestrie/not-verify";
+            fs.writeFileSync(process.argv[1] + "/package.json", JSON.stringify(pkg));
+            fs.writeFileSync(process.argv[1] + "/server.json", JSON.stringify(server));
+          ' "$scratch"
+          if node scripts/assert-server-json.mjs "$scratch" ; then
+            echo "::error::assert-server-json accepted a server.json name that does not match package.json#mcpName" >&2
+            exit 1
+          fi
+          echo "OK: a name/mcpName mismatch is refused"
