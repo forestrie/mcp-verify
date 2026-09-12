@@ -57,6 +57,18 @@ Then copy the whole directory across again and update the commit hash above in
 the same PR. `test/core/golden-pin.test.ts` fails until the digests and the
 manifests agree, which is the point.
 
+## The self-registration bundle is a different thing, elsewhere
+
+`fixtures/self/` (this package's own release-time self-registration bundle,
+plan-2609-02 step 2.3) is **generated and gitignored** — never committed, so
+there is nothing under it for this file to describe provenance for. What
+`verify_self` / `verify --self` (steps 2.4/2.5) are tested against instead is
+a REAL bundle captured once and frozen for tests at
+[`test/fixtures/self-bundle/`](../test/fixtures/self-bundle/), with its own
+provenance record at
+[`test/fixtures/self-bundle/PROVENANCE.md`](../test/fixtures/self-bundle/PROVENANCE.md).
+Read that file, not this one, before touching anything under it.
+
 ## What is NOT a fixture
 
 The **committed grant** for the golden receipt is not a file. It is

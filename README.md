@@ -38,6 +38,7 @@ stops, and what a receipt contains: [TRANSPARENCY.md](TRANSPARENCY.md).
 | ---------------------- | --------------------------------- | ---------------------------------------------------------------------------- |
 | `verify_receipt`       | `forestrie verify`                | Were these exact payload bytes sequenced at this entry id?                   |
 | `verify_grant_receipt` | `forestrie verify-grant`          | Was this grant admitted to this log — i.e. was the signer entitled to write? |
+| `verify_self`          | `forestrie verify`                | Does this package's own release receipt vouch for the bytes it ships?        |
 | `decode_receipt`       | `forestrie decode-receipt --json` | What is actually in this receipt? (Renders the CBOR only. Verifies nothing.) |
 
 Every tool is annotated `readOnlyHint: true, openWorldHint: false`. That is

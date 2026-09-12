@@ -286,3 +286,8 @@ It PASSES. This root evaluates no signature at all. [...]
 The bundled fixtures are also exposed as MCP resources
 (`forestrie://fixtures/golden/…`), so an agent can run the demo with no inputs
 of its own.
+
+`verify_self` / `verify --self` run this same arithmetic against this
+package's own release receipt, defaulting to `known-log-key` rather than
+`genesis` for a reason specific to that receipt's log topology:
+[docs/self-registration.md](self-registration.md).
