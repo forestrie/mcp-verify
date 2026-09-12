@@ -7,7 +7,10 @@
 import type { ReceiptVerifyResult } from "@forestrie/receipt-verify";
 import type { ReceiptVerifyStage, StageRow } from "./result.js";
 
-/** Verification pipeline in narration order (ADR-0045 layers A–C). */
+/**
+ * Verification pipeline in narration order (ADR-0045 layers A–C):
+ * https://github.com/forestrie/protocol/blob/main/decisions/adr-0045-receipt-verify-offline-contract.md
+ */
 export const VERIFY_STAGES: readonly ReceiptVerifyStage[] = [
   "parse",
   "signature",
