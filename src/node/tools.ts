@@ -1,5 +1,5 @@
 /**
- * zod input schemas and `outputSchema`s for the three phase-1 tools.
+ * zod input schemas and `outputSchema`s for the four tools.
  *
  * O2, resolved against a live SDK rather than guessed:
  * `@modelcontextprotocol/sdk@1.30.0` accepts zod-4 schemas directly for both
@@ -106,6 +106,52 @@ export const decodeReceiptInputShape = {
   receipt: BytesInputSchema.describe("the COSE receipt to render"),
 };
 
+/**
+ * `verify_self`'s trust root is narrower than `TrustRootSchema`: the
+ * `known-log-key` and `genesis` bytes come from the bundle itself
+ * (`fixtures/self/log-key.xy.b64`, `genesis.cbor`) rather than from the
+ * caller, since the whole point of this tool is verifying THIS package's own
+ * bundle. Only `known-accumulator` needs caller-supplied bytes — the bundle
+ * ships no accumulator snapshot.
+ */
+export const VerifySelfRootSchema = z
+  .discriminatedUnion("root", [
+    z
+      .object({ root: z.literal("known-log-key") })
+      .describe(
+        "the default: the bundled log owner key, fixtures/self/log-key.xy.b64",
+      ),
+    z
+      .object({ root: z.literal("genesis") })
+      .describe(
+        "the bundled forest genesis document. Reports delegation_invalid " +
+          "for this receipt today: the publications log is a grandchild of " +
+          "the forest root and nothing walks the grant chain that far yet " +
+          "(docs/self-registration.md).",
+      ),
+    z
+      .object({
+        root: z.literal("known-accumulator"),
+        accumulator: BytesInputSchema.describe(
+          "encodeKnownAccumulator snapshot bytes",
+        ),
+        massif: BytesInputSchema.optional(),
+        consistencyProof: BytesInputSchema.optional(),
+      })
+      .describe(
+        "a caller-supplied accumulator snapshot. The only root here that " +
+          "answers split-view.",
+      ),
+  ])
+  .describe(
+    "Which trust root to run verify_self under. Defaults to known-log-key " +
+      "with the bundled key, not genesis — see docs/self-registration.md.",
+  );
+
+export const verifySelfInputShape = {
+  root: VerifySelfRootSchema.optional(),
+};
+
 /* ---------------------------- outputs --------------------------- */
 
 const StageRowSchema = z.object({
@@ -171,6 +217,29 @@ export const verifyOutputShape = {
     package: z.string(),
     version: z.string(),
     receiptVerify: z.string(),
+  }),
+};
+
+/**
+ * `verify_self`'s result: the D3 shape above, plus what only this tool
+ * checks — whether `statement.cose`'s signed payload is byte-for-byte the
+ * `provenance.json` in the bundle, and whether that signature verifies under
+ * the bundled log key. `provenance` is `null` when `provenance.json` did not
+ * even parse as JSON, which a tampered bundle may produce.
+ */
+export const verifySelfOutputShape = {
+  ...verifyOutputShape,
+  self: z.object({
+    provenance: z
+      .object({
+        name: z.string(),
+        version: z.string(),
+        gitCommit: z.string(),
+        builtAt: z.string(),
+      })
+      .nullable(),
+    statementSignature: z.enum(["ok", "failed"]),
+    payloadMatchesProvenance: z.boolean(),
   }),
 };
 

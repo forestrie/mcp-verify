@@ -18,6 +18,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { Grant } from "@forestrie/encoding";
 import { encodeGrantPayloadV0Canonical } from "@forestrie/encoding";
+import type { SelfBundle } from "../core/index.js";
 
 /** The packaged `fixtures/` directory, resolved from this module's location. */
 export const FIXTURES_DIR = join(import.meta.dirname, "..", "..", "fixtures");
@@ -130,13 +131,25 @@ export function goldenEntryId(): string {
  * directory at all. That is not an error: it is the normal state before the
  * first release, or in any checkout that is not the published tarball.
  *
- * Phase 2.4 registers these bytes as `forestrie://self/…` MCP resources
- * (deliberately not wired up yet — see `registerFixtureResources` in
- * `src/node/server.ts`). This helper is what makes that registration
- * tolerant of the bundle's absence: list nothing, never throw.
+ * Registered as `forestrie://self/…` MCP resources in `src/node/server.ts`
+ * (plan-2609-02 step 2.4) when present. `listSelfFixtures`/`loadSelfBundle`
+ * are what make that registration tolerant of the bundle's absence: list
+ * nothing, return `null`, never throw.
+ *
+ * `MCP_VERIFY_SELF_FIXTURES_DIR`, when set, replaces `fixtures/self/` as the
+ * directory these two read. This exists ONLY so tests can point the loader
+ * at a private, disposable directory instead of mutating the real
+ * `fixtures/self/` on disk — which every OTHER test in this suite (and the
+ * published package) assumes is absent, and which concurrent test files
+ * would otherwise race over. `test/node/self.test.ts` is the one place that
+ * sets it. Nothing else in this file, and nothing in `src/core`, reads it.
  */
+function selfFixturesDir(): string {
+  return process.env.MCP_VERIFY_SELF_FIXTURES_DIR ?? fixturePath("self");
+}
+
 export function listSelfFixtures(): string[] {
-  const dir = fixturePath("self");
+  const dir = selfFixturesDir();
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
     .filter((name) => !name.startsWith("."))
@@ -145,5 +158,41 @@ export function listSelfFixtures(): string[] {
 
 /** Read one file out of `fixtures/self/` by name (e.g. `"receipt.cbor"`). */
 export function readSelfFixture(name: string): Uint8Array {
-  return readFixture(`self/${name}`);
+  return new Uint8Array(readFileSync(join(selfFixturesDir(), name)));
+}
+
+/** The six files `scripts/self-register.mjs` writes, minus `manifest.json`
+ *  (a sha256 index, not a `SelfBundle` field). `loadSelfBundle` requires all
+ *  six before treating the bundle as present, so a partially-written or
+ *  corrupted directory reads as absent rather than throwing mid-read. */
+export const SELF_BUNDLE_FILES = [
+  "provenance.json",
+  "statement.cose",
+  "receipt.cbor",
+  "genesis.cbor",
+  "log-key.xy.b64",
+  "entry-id.txt",
+] as const;
+
+/**
+ * Load `fixtures/self/` as a `SelfBundle` (plan-2609-02 step 2.4), or `null`
+ * when it is absent or incomplete. `null` is the expected state for any
+ * checkout that is not itself the published tarball — `verify_self` and
+ * `verify --self` both turn it into a clear, non-throwing error rather than
+ * a stack trace (`src/node/server.ts`, `src/node/self-cli.ts`).
+ */
+export function loadSelfBundle(): SelfBundle | null {
+  const dir = selfFixturesDir();
+  if (!SELF_BUNDLE_FILES.every((name) => existsSync(join(dir, name)))) {
+    return null;
+  }
+  const logKeyXyB64 = readFileSync(join(dir, "log-key.xy.b64"), "utf8").trim();
+  return {
+    provenanceJson: readSelfFixture("provenance.json"),
+    statementCose: readSelfFixture("statement.cose"),
+    receipt: readSelfFixture("receipt.cbor"),
+    genesis: readSelfFixture("genesis.cbor"),
+    logKeyXy: new Uint8Array(Buffer.from(logKeyXyB64, "base64")),
+    entryId: readFileSync(join(dir, "entry-id.txt"), "utf8").trim(),
+  };
 }
