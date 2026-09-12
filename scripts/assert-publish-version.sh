@@ -12,12 +12,21 @@
 #   Tag build (refs/tags/v*):
 #     Assert the version named by the tag equals the package's package.json
 #     version, so a tag can never publish a version other than the one it
-#     names. Runs before build/publish so a mismatch fails fast.
+#     names. Runs before build/publish so a mismatch fails fast. REHEARSAL=true
+#     is refused outright on a tag ref (see below) — a tag build publishes,
+#     by definition, and can never be a rehearsal.
 #
-#   Dispatch build (anything else — workflow_dispatch recovery path):
-#     Assert the package.json version is NOT already on the registry
-#     (`npm view <name>@<version>` must 404), so a recovery dispatch can only
-#     publish a version that has never shipped.
+#   Dispatch build (anything else — workflow_dispatch):
+#     Two cases, both selected by the caller, never guessed:
+#       - REHEARSAL=true (plan-2609-02 step 2.6): this dispatch will not run
+#         `npm publish` at all (publish.yml's own `if:` skips that step), so
+#         the "not already on the registry" check does not apply — a
+#         rehearsal on an already-shipped version is the normal case, not an
+#         error. Skips straight to OK, before any registry lookup.
+#       - otherwise (recovery dispatch): assert the package.json version is
+#         NOT already on the registry (`npm view <name>@<version>` must
+#         404), so a recovery dispatch can only publish a version that has
+#         never shipped.
 #
 # Two changes from canopy's, both because this is a single-package repo:
 #
@@ -32,6 +41,9 @@
 # Usage: assert-publish-version.sh [package-dir] [expected-tag]
 #   e.g. assert-publish-version.sh
 #        assert-publish-version.sh . v0.1.0
+#   env: REHEARSAL=true selects the rehearsal dispatch case above; unset or
+#        any other value is the ordinary recovery-dispatch check (ignored on
+#        a tag ref, where it is instead a hard error — see below).
 #
 # Requires node (to read package.json) and npm (registry lookup) on PATH.
 
@@ -39,10 +51,24 @@ set -euo pipefail
 
 pkg_dir="${1:-.}"
 expected_tag="${2:-}"
+rehearsal="${REHEARSAL:-}"
 
 name=$(node -p "require('./${pkg_dir}/package.json').name")
 version=$(node -p "require('./${pkg_dir}/package.json').version")
 ref="${GITHUB_REF:-}"
+
+# Belt and braces: publish.yml's `if:` on the Publish step already keeps a
+# `rehearsal` dispatch off `npm publish`, and a tag push can never set
+# `rehearsal` in the first place — but this guard runs before any of that,
+# so it refuses the combination outright rather than trusting the caller.
+if [ "$rehearsal" = "true" ]; then
+  case "$ref" in
+    refs/tags/*)
+      echo "::error::REHEARSAL=true on ${ref}; a tag build publishes by definition and can never be a rehearsal" >&2
+      exit 1
+      ;;
+  esac
+fi
 
 if [ -n "$expected_tag" ] && [ -n "$ref" ] && [ "$ref" != "refs/tags/${expected_tag}" ]; then
   echo "::error::expected to be building refs/tags/${expected_tag} but GITHUB_REF is ${ref}; refusing to publish ${name} from a ref it does not name" >&2
@@ -64,6 +90,14 @@ case "$ref" in
     exit 1
     ;;
   *)
+    if [ "$rehearsal" = "true" ]; then
+      # Nothing will be published on this run (publish.yml skips `npm
+      # publish` for a rehearsal), so "not already on the registry" is not
+      # a precondition — it would fail every re-rehearsal of an already
+      # shipped version, which is the normal case, not an error.
+      echo "OK: rehearsal dispatch for ${name}@${version}; registry check skipped because nothing is published"
+      exit 0
+    fi
     # workflow_dispatch (recovery only): the version must not already exist.
     set +e
     out=$(npm view "${name}@${version}" version 2>&1)

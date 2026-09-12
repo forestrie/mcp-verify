@@ -130,6 +130,18 @@ Every step up to and including `Pack` runs for real, against whatever lane
 `FORESTRIE_BASE_URL` names — registration included — but the final `npm
 publish` step is skipped, so nothing ships.
 
+`scripts/assert-publish-version.sh` (the "Assert publish version
+discipline" step, which runs first and fails the whole dispatch if it
+fails) reads `REHEARSAL` from the environment and, on a rehearsal dispatch,
+**skips its "not already on the registry" check entirely** — it prints `OK:
+rehearsal dispatch for <name>@<version>; registry check skipped because
+nothing is published` and exits 0 before ever calling `npm view`. That check
+exists for a **recovery** dispatch, which does publish; a rehearsal never
+does, so re-rehearsing an already-shipped version (the normal case, not an
+error) must not trip it. The guard also refuses `REHEARSAL=true` on a tag
+ref outright, belt and braces on top of the `Publish` step's own `if:` — a
+tag build publishes by definition and can never be a rehearsal.
+
 Checklist:
 
 1. Confirm `GET {FORESTRIE_BASE_URL}/api/health` is clean (Blocker A, the

@@ -100,8 +100,15 @@ jobs:
       - name: Assert publish version discipline
         # Tag builds: the tag must name exactly the package.json version.
         # Dispatch (recovery) builds: the version must not already be on the
-        # registry. Fails before build/publish.
+        # registry — UNLESS this is a `rehearsal` dispatch, which never
+        # publishes and so must not be held to "not on the registry yet"
+        # (a rehearsal on an already-shipped version, e.g. re-running 2.6
+        # after a real release, is exactly the normal case). REHEARSAL is a
+        # string ("true"/"false"), not a GHA boolean, because the script
+        # reads it from the shell environment. Fails before build/publish.
         run: ./scripts/assert-publish-version.sh .
+        env:
+          REHEARSAL: ${{ github.event_name == 'workflow_dispatch' && inputs.rehearsal }}
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

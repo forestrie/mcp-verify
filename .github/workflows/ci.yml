@@ -235,3 +235,26 @@ jobs:
             exit 1
           fi
           echo "OK: a foreign tag is refused"
+
+      # plan-2609-02 step 2.6: a rehearsal dispatch never runs `npm publish`
+      # (publish.yml's own `if:` skips that step), so it must pass even when
+      # the version is already published — the normal case for re-running a
+      # rehearsal, not an error. This runs against the package's REAL,
+      # already-published version, which is exactly what makes it prove the
+      # registry check was skipped rather than happening to pass it.
+      - name: assert-publish-version self-test — rehearsal dispatch skips the registry check
+        run: |
+          if ! GITHUB_REF="refs/heads/main" REHEARSAL=true ./scripts/assert-publish-version.sh . ; then
+            echo "::error::a rehearsal dispatch must pass regardless of registry state" >&2
+            exit 1
+          fi
+          echo "OK: rehearsal dispatch passes without a registry lookup"
+
+      - name: assert-publish-version self-test — REHEARSAL=true on a tag ref is refused
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if GITHUB_REF="refs/tags/v${version}" REHEARSAL=true ./scripts/assert-publish-version.sh . ; then
+            echo "::error::a tag ref must never be accepted as a rehearsal" >&2
+            exit 1
+          fi
+          echo "OK: a tag build can never be a rehearsal"
