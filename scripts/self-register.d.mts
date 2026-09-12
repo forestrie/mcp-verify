@@ -55,3 +55,5 @@ export declare function parseArgs(argv: string[]): {
   dryRun: boolean;
   outDir?: string;
 };
+
+export declare function derivePublicKeyXyBase64(keyPem: string): string;

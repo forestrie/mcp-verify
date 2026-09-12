@@ -34,9 +34,12 @@ release workflow (`.github/workflows/publish.yml`):
 --json` and waits for the receipt — a poll loop against a SCRAPI
    `303`/status/receipt redirect chain, not a single request.
 4. Fetches the forest's kept-copy genesis (see below).
-5. Bundles all of it under `fixtures/self/`: `provenance.json`,
-   `statement.cose`, `receipt.cbor`, `genesis.cbor`, `entry-id.txt`, and a
-   `manifest.json` carrying the sha256 of each.
+5. Derives the release key's public point (`x‖y`, 64 raw bytes, standard
+   base64) from `FORESTRIE_RELEASE_KEY_PEM` via `node:crypto` — see "The
+   grant chain: recorded, not walked" below for why this is bundled at all.
+6. Bundles all of it under `fixtures/self/`: `provenance.json`,
+   `statement.cose`, `receipt.cbor`, `genesis.cbor`, `log-key.xy.b64`,
+   `entry-id.txt`, and a `manifest.json` carrying the sha256 of each.
 
 `fixtures/self/` is **generated, and gitignored** — it never lands in a
 commit. `package.json#files` lists it explicitly (alongside the existing
@@ -79,20 +82,45 @@ Evidence:
 So `FORESTRIE_LOG_ID` — the same value `forestrie register --log-id` already
 needs — is exactly the id this script uses for
 `GET {FORESTRIE_BASE_URL}/api/forest/{FORESTRIE_LOG_ID}/genesis`. No second
-env var is needed. The one thing that evidence trail cannot settle from
-source alone: whether the value the owner provisions into `FORESTRIE_LOG_ID`
-really is the forest's bootstrap id (as opposed to the publications log's own
-id, which is a different value once `create-log` has run). **That is a
-rehearsal check, not a code question** — see below.
+env var is needed, and provisioning has confirmed `FORESTRIE_LOG_ID` is
+indeed the forest's bootstrap id — see the table below and the next section
+for what that turned out to mean in practice.
+
+## The grant chain: recorded, not walked
+
+Provisioning surfaced a runtime finding that changes what `verify_self`
+(step 2.4) must default to. The publications log is not a direct child of
+the forest root — it is a **grandchild**: root → auth log → publications
+log. That chain is real and it is recorded in the logs (the `create-log`
+grants that built it), but as of today **neither `forestrie-cli` nor
+`@forestrie/receipt-verify` walks a grant chain down to a child log** — the
+`genesis` root's offline walk only reaches a log's direct delegate. The
+practical consequence: a receipt for this log's own entries verifies offline
+under `known-log-key` (the log owner's key, held out of band) today, and
+**fails under `genesis` with `delegation_invalid`**, because `genesis`
+cannot see past the one hop it does resolve.
+
+This is why `log-key.xy.b64` — the release key's public point — is bundled
+at all: `known-log-key` needs a caller-known key from a channel it already
+trusts, and this bundle IS that channel for the package's own receipt.
+`verify_self` will default to `known-log-key` with this bundled point,
+**not** `genesis`, for exactly this reason. `genesis.cbor` still ships
+alongside it — it costs one fetch, it is still the forest's root document
+and useful for anyone auditing the chain by hand, and the walk down to a
+child log may land in `forestrie-cli` or `@forestrie/receipt-verify` later,
+at which point `genesis` becomes the default again with no bundle change
+needed here. Until then, treat the genesis document as recorded evidence of
+the chain, not as something this package's own verification currently
+walks.
 
 ## Secrets and variables (`npm-publish` environment)
 
 | Name                        | Kind                | Purpose                                                                                                                                                                                                                                                                                                                    |
 | --------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `FORESTRIE_BASE_URL`        | variable            | SCRAPI origin for the lane, e.g. `https://api-a.forest-2.forestrie.dev`                                                                                                                                                                                                                                                    |
-| `FORESTRIE_LOG_ID`          | variable            | The forest's bootstrap log id — used both as `register --log-id`'s URL segment and as the genesis fetch path segment. Confirm this in rehearsal (above).                                                                                                                                                                   |
-| `FORESTRIE_RELEASE_KEY_PEM` | secret              | ES256 private key, PEM. Written to a `0600` temp file for the one `sign-statement` invocation and deleted immediately after, real run or rehearsal alike.                                                                                                                                                                  |
-| `FORESTRIE_GRANT_B64`       | secret              | The completed `Authorization: Forestrie-Grant` credential, base64. Carries the actual target (publications) log id inside it.                                                                                                                                                                                              |
+| `FORESTRIE_LOG_ID`          | variable            | The forest's root/bootstrap log id — **confirmed** in provisioning, not the publications log's own id. Used both as `register --log-id`'s URL segment and as the genesis fetch path segment. The grant, not this variable and not the bundle, is what names the publications log — see below.                              |
+| `FORESTRIE_RELEASE_KEY_PEM` | secret              | ES256 private key, PEM. Written to a `0600` temp file for the one `sign-statement` invocation and deleted immediately after, real run or rehearsal alike. Its public point is also derived and bundled as `log-key.xy.b64` (see "The grant chain" above).                                                                  |
+| `FORESTRIE_GRANT_B64`       | secret              | The completed `Authorization: Forestrie-Grant` credential, base64. `grant.logId` inside it — never `FORESTRIE_LOG_ID`, never the bundle — is the actual target: the publications log, a grandchild of the forest root.                                                                                                     |
 | `FORESTRIE_CLI`             | variable (optional) | Path to a `forestrie` binary. When unset, the script downloads and sha256-verifies the same pinned `v0.7.0` release binary `test/differential/cli-binary.ts` uses (it already has `sign-statement` and `register` — confirmed via `--help`). Set this once `@forestrie/forestrie-cli` publishes to npm and CI installs it. |
 
 ## Rehearsal (plan-2609-02 step 2.6)
@@ -109,11 +137,13 @@ Checklist:
 2. Confirm the owner has provisioned a lane-A publications log the same way
    as step 2.1's lane-B posture: a fresh ES256 key as the log's own owner
    key, `FORESTRIE_RELEASE_KEY_PEM` set to its private PEM.
-3. Confirm `FORESTRIE_LOG_ID` is the **forest's bootstrap log id** for lane
-   A, not the publications log's own id — see "The genesis question" above.
-   If registration fails with a genesis-not-found style error, or the
-   fetched `genesis.cbor` does not decode under
-   `decodeTrustRootFromGenesis`, that is the first thing to check.
+3. Confirm `FORESTRIE_LOG_ID` is the **forest's root/bootstrap log id** for
+   the lane being rehearsed, not the publications log's own id — see "The
+   genesis question" above. Confirmed for lane A already; re-check for any
+   new lane (lane B, when it is provisioned). If registration fails with a
+   genesis-not-found style error, or the fetched `genesis.cbor` does not
+   decode under `decodeTrustRootFromGenesis`, that is the first thing to
+   check.
 4. Dispatch with `rehearsal: true`. On success, download the `fixtures/self/`
    bundle from the run's workspace (or inspect the job log) and confirm
    `manifest.json`'s sha256 entries match the shipped files.

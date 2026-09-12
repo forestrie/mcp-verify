@@ -14,8 +14,25 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   SelfRegisterError,
+  derivePublicKeyXyBase64,
   selfRegister,
 } from "../../scripts/self-register.mjs";
+
+/**
+ * A fixed EC P-256 private key (PKCS8), generated once for this test. Its
+ * expected public point below was derived independently — not via
+ * `derivePublicKeyXyBase64`'s own JWK path, but by exporting the public key
+ * as SPKI DER and reading the raw uncompressed point (0x04 ‖ X ‖ Y) out of
+ * its last 65 bytes — so this is a real cross-check, not a tautology.
+ */
+const KNOWN_PEM = `-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgy1eEcJsD9XeAVVP+
+out1i8ljt8CpCj9hBsNf64gy41ehRANCAAT/ILKbVnzN2S0kZ+8MM3TpOP7q40Pi
+bmUlvkLTERJrM8OGFWqKFHNhsuVf9rFC8fv46Uh8Ds1PkohxablveQVh
+-----END PRIVATE KEY-----
+`;
+const KNOWN_PEM_XY_BASE64 =
+  "/yCym1Z8zdktJGfvDDN06Tj+6uND4m5lJb5C0xESazPDhhVqihRzYbLlX/axQvH7+OlIfA7NT5KIcWm5b3kFYQ==";
 
 /** The path after `--out` in a mocked CLI invocation's argv. */
 function outPathOf(args: string[]): string {
@@ -35,6 +52,20 @@ afterEach(() => {
   rmSync(outDir, { recursive: true, force: true });
 });
 
+describe("derivePublicKeyXyBase64", () => {
+  it("a known PEM produces the expected 64-byte x‖y value", () => {
+    const got = derivePublicKeyXyBase64(KNOWN_PEM);
+    expect(got).toBe(KNOWN_PEM_XY_BASE64);
+    expect(Buffer.from(got, "base64")).toHaveLength(64);
+  });
+
+  it("rejects a key that is not valid PEM", () => {
+    expect(() => derivePublicKeyXyBase64("not a pem")).toThrow(
+      SelfRegisterError,
+    );
+  });
+});
+
 describe("selfRegister --dry-run", () => {
   it("writes the full bundle with no network and no real CLI", async () => {
     const result = await selfRegister({ dryRun: true, outDir });
@@ -50,6 +81,7 @@ describe("selfRegister --dry-run", () => {
       "statement.cose",
       "receipt.cbor",
       "genesis.cbor",
+      "log-key.xy.b64",
       "entry-id.txt",
       "manifest.json",
     ];
@@ -81,6 +113,11 @@ describe("selfRegister --dry-run", () => {
     expect(readFileSync(join(outDir, "entry-id.txt"), "utf8")).toBe(
       "0".repeat(32),
     );
+
+    // The throwaway dry-run key's public point: still a real 64-byte x‖y,
+    // just not tied to any secret.
+    const logKeyXy = readFileSync(join(outDir, "log-key.xy.b64"), "utf8");
+    expect(Buffer.from(logKeyXy, "base64")).toHaveLength(64);
   });
 
   it("never touches the real fetch (the unit project's forbidden-fetch global)", async () => {
