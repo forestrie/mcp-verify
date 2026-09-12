@@ -29,9 +29,32 @@ name: Publish
 # - Pack with pnpm, publish the tarball with npm (the OIDC exchange is npm's).
 # - `pnpm test` runs BEFORE build, and it chains check:browser-safe and
 #   check:encoding-single-copy, so a purity regression cannot be published.
+#
+# plan-2609-02 step 2.3 — release-time self-registration:
+# - Between Build and Pack, `scripts/self-register.mjs` writes
+#   provenance.json, signs and registers it against FORESTRIE_BASE_URL,
+#   downloads the receipt, fetches the kept-copy genesis, and bundles all of
+#   it under fixtures/self/ (gitignored; package.json#files ships it inside
+#   the tarball). A non-zero exit there stops the release before `npm
+#   publish` — see docs/self-registration.md for the secrets/vars table and
+#   the two-root loop this closes.
+# - A `rehearsal` workflow_dispatch input runs the SAME real registration
+#   step (against whatever lane FORESTRIE_BASE_URL names) and Pack, but
+#   skips `npm publish` — plan-2609-02 step 2.6's lane-A dry run. It is not
+#   the same thing as the script's own `--dry-run` flag (local stubs, no
+#   network at all), which is the separate offline gate `pnpm test`-adjacent
+#   tooling exercises.
 
 on:
   workflow_dispatch:
+    inputs:
+      rehearsal:
+        description: >-
+          Rehearse the release path without publishing: registration and
+          packaging run for real against FORESTRIE_BASE_URL, but `npm
+          publish` is skipped (plan-2609-02 step 2.6).
+        type: boolean
+        default: false
   push:
     tags:
       - "v*"
@@ -91,9 +114,32 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Register provenance in the Forestrie log
+        # plan-2609-02 step 2.3. Writes provenance.json = {name, version,
+        # gitCommit, builtAt} (serverJsonSha256 is deferred to phase 3 —
+        # AGENTS.md forbids server.json before the DNS record lands), signs
+        # it with `forestrie sign-statement`, registers it with `forestrie
+        # register --timeout 300 --json` and waits for the receipt, fetches
+        # the forest's kept-copy genesis, and writes fixtures/self/ (bundle +
+        # manifest.json). Runs for real on a tag push AND on a `rehearsal`
+        # dispatch alike; only the Publish step below is conditioned on
+        # `rehearsal`. Non-zero exit here stops the release before Pack and
+        # Publish.
+        run: node scripts/self-register.mjs
+        env:
+          FORESTRIE_BASE_URL: ${{ vars.FORESTRIE_BASE_URL }}
+          FORESTRIE_LOG_ID: ${{ vars.FORESTRIE_LOG_ID }}
+          FORESTRIE_RELEASE_KEY_PEM: ${{ secrets.FORESTRIE_RELEASE_KEY_PEM }}
+          FORESTRIE_GRANT_B64: ${{ secrets.FORESTRIE_GRANT_B64 }}
+
+      - name: Pack
+        run: pnpm pack
+
       - name: Publish to npmjs (trusted publishing)
+        # Skipped for a `rehearsal` dispatch (plan-2609-02 step 2.6): every
+        # step up to and including Pack still ran for real, so the rehearsal
+        # proves registration and packaging without shipping anything.
         # --provenance is explicit as well as set in publishConfig, so a
         # silent regression is impossible.
-        run: |
-          pnpm pack
-          npm publish --provenance ./forestrie-mcp-verify-*.tgz
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.rehearsal) }}
+        run: npm publish --provenance ./forestrie-mcp-verify-*.tgz
