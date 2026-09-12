@@ -1,0 +1,12 @@
+{
+  "comment": "Release-time self-registration bundle (plan-2609-02 step 2.3). Generated, never committed — see fixtures/PROVENANCE.md and docs/self-registration.md.",
+  "generatedAt": "2026-09-12T18:32:33.810Z",
+  "files": {
+    "provenance.json": "511c4ad562edb0f0c745efb78a87c79f5ecdda760dee6057f81b076886d4c047",
+    "statement.cose": "0be4c34e06120a904bf0583bfbc31c7ea6e57f0501413fed6a9e02aba37d1605",
+    "receipt.cbor": "52f18f5b67034b7551ac566077445f2dc34af00092910b59a8ea51950356bbae",
+    "genesis.cbor": "c6183184d805bf23652a265d7f533101eec5c97e1939dd90c7f142e6d502da68",
+    "log-key.xy.b64": "b48749628f1b20c8bd822fc317a36da4709fafc92849658973aa5743baf811c7",
+    "entry-id.txt": "591ca6f7a3433ee1397e627ac6d5b8add5efdf884c3dfec48f4ad276f253bbe5"
+  }
+}
