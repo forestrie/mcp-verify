@@ -6,9 +6,20 @@
  * (`serverJsonSha256` is deferred to phase 3 — AGENTS.md forbids `server.json`
  * before the DNS record lands), signs it with `forestrie sign-statement`,
  * registers it with `forestrie register` and waits for the receipt, fetches
- * the forest's kept-copy genesis, and bundles all of it under
+ * the forest's kept-copy genesis, derives the release key's public point
+ * from `FORESTRIE_RELEASE_KEY_PEM`, and bundles all of it under
  * `fixtures/self/` (never committed — see .gitignore) so it ships inside the
  * npm tarball via `package.json#files`.
+ *
+ * The public point (`log-key.xy.b64`) exists because the publications log is
+ * a grandchild of the forest root (root → auth log → publications log), and
+ * neither `forestrie-cli` nor `@forestrie/receipt-verify` walks a grant
+ * chain down to a child log yet — a receipt for this log verifies offline
+ * under `known-log-key` (the log owner's key) today, and fails under
+ * `genesis` with `delegation_invalid`. `verify_self` (step 2.4) will default
+ * to `known-log-key` with this bundled point; `genesis.cbor` still ships,
+ * both because it is cheap and because the walk may land later. See
+ * docs/self-registration.md.
  *
  * Exit code: 0 on success, non-zero on ANY failure (a missing env var, a
  * non-zero CLI exit, a bad genesis fetch). All logging goes to stderr —
@@ -41,7 +52,7 @@
  * `forestrie` bin without this script changing at all.
  */
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, createPublicKey, generateKeyPairSync } from "node:crypto";
 import {
   chmodSync,
   copyFileSync,
@@ -64,6 +75,58 @@ export class SelfRegisterError extends Error {}
 
 function sha256Hex(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
+}
+
+/**
+ * The release key's public point, as the standard-base64 encoding of 64 raw
+ * bytes `x‖y` — the same `grantData` shape `create-log --signer-pem` and the
+ * CLI's `--known-log-key` expect. Derived via `node:crypto`, not the CLI:
+ * `createPublicKey` accepts a PRIVATE key PEM and returns the corresponding
+ * public `KeyObject`; exporting that as JWK gives base64url `x`/`y`
+ * coordinates, which are decoded to 32 raw bytes each and concatenated.
+ *
+ * This is why the publications log's own receipts need this bundled at all
+ * (see the file header): they verify under `known-log-key`, and that root
+ * needs exactly this value.
+ */
+export function derivePublicKeyXyBase64(keyPem) {
+  let publicKey;
+  try {
+    publicKey = createPublicKey(keyPem);
+  } catch (err) {
+    throw new SelfRegisterError(
+      `could not derive a public key from the release key PEM: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  const jwk = publicKey.export({ format: "jwk" });
+  if (
+    jwk.kty !== "EC" ||
+    jwk.crv !== "P-256" ||
+    typeof jwk.x !== "string" ||
+    typeof jwk.y !== "string"
+  ) {
+    throw new SelfRegisterError(
+      `release key is not an ES256 P-256 key (kty=${jwk.kty}, crv=${jwk.crv})`,
+    );
+  }
+  const x = Buffer.from(jwk.x, "base64url");
+  const y = Buffer.from(jwk.y, "base64url");
+  if (x.length !== 32 || y.length !== 32) {
+    throw new SelfRegisterError(
+      `release key's public point has an unexpected coordinate length (x=${x.length}, y=${y.length}, want 32 each)`,
+    );
+  }
+  return Buffer.concat([x, y]).toString("base64");
+}
+
+/**
+ * A fresh, throwaway ES256 P-256 private key PEM, generated in-process —
+ * `--dry-run`'s stand-in for `FORESTRIE_RELEASE_KEY_PEM` so the public-point
+ * derivation above runs on a real key with no fixture and no secret.
+ */
+function generateDryRunKeyPem() {
+  const { privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+  return privateKey.export({ type: "pkcs8", format: "pem" });
 }
 
 // ---------------------------------------------------------------------------
@@ -272,7 +335,6 @@ function resolveGitCommit(env) {
 const DRY_RUN_DEFAULTS = Object.freeze({
   baseUrl: "https://dry-run.invalid",
   logId: "00000000-0000-0000-0000-000000000000",
-  keyPem: "-----BEGIN DRY RUN PLACEHOLDER KEY-----\n",
   grantB64: "ZHJ5LXJ1bg==", // base64("dry-run")
 });
 
@@ -301,7 +363,7 @@ export async function selfRegister(opts = {}) {
     env.FORESTRIE_LOG_ID ?? (dryRun ? DRY_RUN_DEFAULTS.logId : undefined);
   const keyPem =
     env.FORESTRIE_RELEASE_KEY_PEM ??
-    (dryRun ? DRY_RUN_DEFAULTS.keyPem : undefined);
+    (dryRun ? generateDryRunKeyPem() : undefined);
   const grantB64 =
     env.FORESTRIE_GRANT_B64 ??
     (dryRun ? DRY_RUN_DEFAULTS.grantB64 : undefined);
@@ -321,6 +383,9 @@ export async function selfRegister(opts = {}) {
       );
     }
   }
+
+  // Fail fast on a malformed key, before any CLI or network work.
+  const publicKeyXyBase64 = derivePublicKeyXyBase64(keyPem);
 
   const pkg = readPackageJson();
   const gitCommit = resolveGitCommit(env);
@@ -408,12 +473,16 @@ export async function selfRegister(opts = {}) {
     const genesisBytes = await fetchGenesis(baseUrl, logId, { env, log });
     writeFileSync(join(stageDir, "genesis.cbor"), genesisBytes);
     writeFileSync(join(stageDir, "entry-id.txt"), entryId);
+    // No trailing newline: this is the exact 64-byte-as-base64 value, not a
+    // text line — the same convention as entry-id.txt above.
+    writeFileSync(join(stageDir, "log-key.xy.b64"), publicKeyXyBase64);
 
     const bundleFiles = [
       "provenance.json",
       "statement.cose",
       "receipt.cbor",
       "genesis.cbor",
+      "log-key.xy.b64",
       "entry-id.txt",
     ];
     const manifest = {
