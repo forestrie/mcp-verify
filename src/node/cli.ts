@@ -4,9 +4,12 @@
  *   <no args>          → StdioServerTransport; this is what
  *                        `npx -y @forestrie/mcp-verify` does (D6).
  *   demo               → run two trust roots over the bundled fixtures.
- *   verify --self      → PHASE 2. Recognised now, and refused with a clear
- *                        not-yet-available message rather than an
- *                        unknown-command error.
+ *   verify --self      → verify this package's own release-time
+ *                        self-registration receipt against the bundled log
+ *                        owner key (plan-2609-02 step 2.5). Exit 2, not 1,
+ *                        when `fixtures/self/` is absent — the normal state
+ *                        for a checkout that is not itself the published
+ *                        tarball, not a verification failure.
  *   --help | --version → text on stdout, exit 0.
  *
  * TWO RULES, both silent-corruption bugs if broken:
@@ -28,6 +31,7 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { PACKAGE_VERSION, RECEIPT_VERIFY_VERSION } from "../core/index.js";
 import { runDemo } from "./demo.js";
+import { runVerifySelf } from "./self-cli.js";
 import { createServer } from "./server.js";
 
 const HELP = `forestrie-mcp-verify ${PACKAGE_VERSION}
@@ -36,15 +40,17 @@ const HELP = `forestrie-mcp-verify ${PACKAGE_VERSION}
   Offline: no backend, no account, no key, no network.
 
 USAGE
-  forestrie-mcp-verify              start the MCP server on stdio (the default)
-  forestrie-mcp-verify demo         run two trust roots over the bundled fixtures
-  forestrie-mcp-verify verify --self   verify this package's own registration (phase 2)
+  forestrie-mcp-verify                start the MCP server on stdio (the default)
+  forestrie-mcp-verify demo           run two trust roots over the bundled fixtures
+  forestrie-mcp-verify verify --self  verify this package's own release
+                                       registration against the bundled log key
   forestrie-mcp-verify --help
   forestrie-mcp-verify --version
 
 TOOLS
   verify_receipt         payload receipt + exact payload + entry id + trust root
   verify_grant_receipt   grant receipt + committed grant + trust root
+  verify_self            this package's own release-time self-registration
   decode_receipt         CBOR to JSON. No verification.
 
 TRUST ROOTS (the "root" field)
@@ -91,21 +97,12 @@ export async function main(argv: readonly string[]): Promise<number> {
 
   if (verb === "verify") {
     if (args.includes("--self")) {
-      // Recognised deliberately: an unknown-command error would suggest the
-      // feature does not exist, when the truth is that it arrives in a
-      // later release with the package's own registration receipt
-      // (plan-2609-02 phase 2).
-      process.stderr.write(
-        "verify --self is not available yet: it verifies this package's " +
-          "own registration receipt, which is not bundled yet " +
-          "(plan-2609-02 phase 2).\n",
-      );
-      return 1;
+      return runVerifySelf(out);
     }
     process.stderr.write(
-      "forestrie-mcp-verify: `verify` currently supports only --self " +
-        "(not yet available). To verify a receipt now, call the " +
-        "verify_receipt or verify_grant_receipt MCP tool, or run `demo`.\n",
+      "forestrie-mcp-verify: `verify` currently supports only --self. " +
+        "To verify a receipt now, call the verify_receipt or " +
+        "verify_grant_receipt MCP tool, or run `demo`.\n",
     );
     return 1;
   }

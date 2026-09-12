@@ -60,7 +60,14 @@ export type DiagnosticCode =
   /** Upstream labels a peak/staleness failure at the accumulator root as
    *  stage=signature although no signature was evaluated. Passed through
    *  verbatim for differential fidelity; named here so nobody misreads it. */
-  | "accumulator_failure_reported_at_signature_stage";
+  | "accumulator_failure_reported_at_signature_stage"
+  /** verify_self / verify --self only. The publications log this package
+   *  registers into is a grandchild of the forest root (root → auth log →
+   *  publications log); that grant chain is recorded in the logs but neither
+   *  forestrie-cli nor @forestrie/receipt-verify walks it down to a child log
+   *  yet (docs/self-registration.md "The grant chain: recorded, not walked").
+   *  Emitted at known-log-key and genesis, the two roots this affects. */
+  | "self_chain_not_walked";
 
 export type Diagnostic = { code: DiagnosticCode; message: string };
 

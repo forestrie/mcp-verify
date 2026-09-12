@@ -1,6 +1,6 @@
 /**
- * `createServer()` — the three phase-1 tools and the fixture resources wired
- * onto a fresh `McpServer`. No transport: the caller connects one (stdio from
+ * `createServer()` — the four tools and the fixture resources wired onto a
+ * fresh `McpServer`. No transport: the caller connects one (stdio from
  * `cli.ts`, `InMemoryTransport` from the smoke test), which is also what lets
  * an embedder mount these tools on their own transport without the CLI.
  *
@@ -21,8 +21,12 @@ import {
   PACKAGE_VERSION,
   decodeReceipt,
   summarize,
+  summarizeSelf,
   verifyGrantReceipt,
   verifyReceipt,
+  verifySelf,
+  type SelfVerifyResult,
+  type TrustRoot,
   type VerifyResult,
 } from "../core/index.js";
 import { InputError, resolveBytes, resolveRoot } from "./resolve-input.js";
@@ -33,8 +37,17 @@ import {
   verifyGrantReceiptInputShape,
   verifyOutputShape,
   verifyReceiptInputShape,
+  verifySelfInputShape,
+  verifySelfOutputShape,
 } from "./tools.js";
-import { BURIAL_MANIFEST, readFixture, readFixtureText } from "./fixtures.js";
+import {
+  BURIAL_MANIFEST,
+  listSelfFixtures,
+  loadSelfBundle,
+  readFixture,
+  readFixtureText,
+  readSelfFixture,
+} from "./fixtures.js";
 
 const SERVER_NAME = "forestrie-mcp-verify";
 
@@ -61,6 +74,71 @@ function verifyResult(verb: string, result: VerifyResult): ToolResult {
   return {
     structuredContent: result as unknown as Record<string, unknown>,
     content: [{ type: "text", text: summarize(verb, result) }],
+  };
+}
+
+function verifySelfResult(result: SelfVerifyResult): ToolResult {
+  return {
+    structuredContent: result as unknown as Record<string, unknown>,
+    content: [{ type: "text", text: summarizeSelf(result) }],
+  };
+}
+
+/**
+ * `verify_self`'s wire-form root — narrower than `TrustRootInput`, because
+ * the `known-log-key` and `genesis` bytes come from the bundle itself. Only
+ * `known-accumulator` needs bytes from the caller.
+ */
+type SelfRootInput =
+  | { root: "known-log-key" }
+  | { root: "genesis" }
+  | {
+      root: "known-accumulator";
+      accumulator: BytesInput;
+      massif?: BytesInput;
+      consistencyProof?: BytesInput;
+    };
+
+function resolveSelfRoot(
+  bundle: { logKeyXy: Uint8Array; genesis: Uint8Array },
+  input: SelfRootInput | undefined,
+): TrustRoot {
+  if (input === undefined || input.root === "known-log-key") {
+    return { root: "known-log-key", keyXy: bundle.logKeyXy };
+  }
+  if (input.root === "genesis") {
+    return { root: "genesis", genesis: bundle.genesis };
+  }
+  const out: TrustRoot = {
+    root: "known-accumulator",
+    accumulator: resolveBytes(input.accumulator, "root.accumulator"),
+  };
+  if (input.massif !== undefined) {
+    out.massif = resolveBytes(input.massif, "root.massif");
+  }
+  if (input.consistencyProof !== undefined) {
+    out.consistencyProof = resolveBytes(
+      input.consistencyProof,
+      "root.consistencyProof",
+    );
+  }
+  return out;
+}
+
+/** `verify_self`'s clear, non-throwing error for a checkout with no
+ *  `fixtures/self/` bundle — the normal state for anything that is not
+ *  itself the published tarball. */
+function selfBundleAbsent(): ToolResult {
+  return {
+    isError: true,
+    content: [
+      {
+        type: "text",
+        text:
+          "this checkout was not produced by a release; run the release " +
+          "rehearsal or use a published tarball",
+      },
+    ],
   };
 }
 
@@ -201,16 +279,52 @@ export function createServer(): McpServer {
     },
   );
 
+  server.registerTool(
+    "verify_self",
+    {
+      title: "Verify this package's own release registration",
+      description:
+        "Verify this package's own release-time self-registration receipt: " +
+        "does the receipt commit the signed statement, does that " +
+        "statement's payload match the bundled provenance.json " +
+        "byte-for-byte, and does its ES256 signature verify under the " +
+        "bundled log owner key? No inputs required. Defaults to the " +
+        "known-log-key root with the bundled key, not genesis — the " +
+        "publications log is a grandchild of the forest root and nothing " +
+        "walks that grant chain yet (docs/self-registration.md). Errors " +
+        "clearly, rather than throwing, when this checkout has no " +
+        "fixtures/self/ bundle (any checkout that is not itself the " +
+        "published tarball).",
+      inputSchema: verifySelfInputShape,
+      outputSchema: verifySelfOutputShape,
+      annotations,
+    },
+    async (args) => {
+      const bundle = loadSelfBundle();
+      if (bundle === null) return selfBundleAbsent();
+      try {
+        const root = resolveSelfRoot(
+          bundle,
+          args.root as SelfRootInput | undefined,
+        );
+        const result = await verifySelf(bundle, { root });
+        return verifySelfResult(result);
+      } catch (err) {
+        if (err instanceof InputError) return inputError(err);
+        throw err;
+      }
+    },
+  );
+
   registerFixtureResources(server);
+  registerSelfResources(server);
   return server;
 }
 
 /**
  * The bundled golden vectors as MCP resources, so an agent can run the demo
- * with no inputs of its own (D2). The `forestrie://self/…` namespace is
- * reserved for phase 2's self-registration artefacts and is deliberately NOT
- * registered here — an empty namespace is better than one that resolves to
- * nothing.
+ * with no inputs of its own (D2). `registerSelfResources` below covers the
+ * `forestrie://self/…` namespace, previously reserved but unregistered.
  */
 function registerFixtureResources(server: McpServer): void {
   const binaryFixtures: { rel: string; title: string; description: string }[] =
@@ -280,6 +394,68 @@ function registerFixtureResources(server: McpServer): void {
           { uri, mimeType: "application/json", text: readFixtureText(rel) },
         ],
       }),
+    );
+  }
+}
+
+/** Which `fixtures/self/` files are text vs binary, and their mime type —
+ *  same six files `loadSelfBundle` requires (`fixtures.ts`), keyed here by
+ *  name because a resource needs a mime type a `SelfBundle` field does not
+ *  carry. */
+const SELF_FIXTURE_KINDS: Record<string, { mimeType: string; text: boolean }> =
+  {
+    "provenance.json": { mimeType: "application/json", text: true },
+    "statement.cose": { mimeType: "application/cbor", text: false },
+    "receipt.cbor": { mimeType: "application/cbor", text: false },
+    "genesis.cbor": { mimeType: "application/cbor", text: false },
+    "log-key.xy.b64": { mimeType: "text/plain", text: true },
+    "entry-id.txt": { mimeType: "text/plain", text: true },
+    "manifest.json": { mimeType: "application/json", text: true },
+  };
+
+/**
+ * `fixtures/self/` as `forestrie://self/…` MCP resources, when the bundle is
+ * present — never when it is not (an unregistered namespace beats one that
+ * resolves to nothing, `test/node/mcp-smoke.test.ts`). `fixtures/self/` is
+ * generated and gitignored (plan-2609-02 step 2.3), so this is normally a
+ * no-op outside a release checkout.
+ */
+function registerSelfResources(server: McpServer): void {
+  for (const name of listSelfFixtures()) {
+    const kind = SELF_FIXTURE_KINDS[name];
+    if (kind === undefined) continue; // an unrecognised extra file, e.g. a dotfile an OS left behind
+    const uri = `forestrie://self/${name}`;
+    server.registerResource(
+      `self/${name}`,
+      uri,
+      {
+        title: `Self-registration bundle: ${name}`,
+        description:
+          "This package's own release-time self-registration artefact " +
+          "(plan-2609-02 step 2.3) — what verify_self / verify --self " +
+          "checks. See docs/self-registration.md.",
+        mimeType: kind.mimeType,
+      },
+      async () =>
+        kind.text
+          ? {
+              contents: [
+                {
+                  uri,
+                  mimeType: kind.mimeType,
+                  text: new TextDecoder().decode(readSelfFixture(name)),
+                },
+              ],
+            }
+          : {
+              contents: [
+                {
+                  uri,
+                  mimeType: kind.mimeType,
+                  blob: Buffer.from(readSelfFixture(name)).toString("base64"),
+                },
+              ],
+            },
     );
   }
 }

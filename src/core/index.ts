@@ -66,6 +66,18 @@ export type { VerifyGrantReceiptInput } from "./verify-grant-receipt.js";
 export { verifyGrantReceipt } from "./verify-grant-receipt.js";
 
 export type {
+  SelfBundle,
+  SelfProvenance,
+  SelfVerifyResult,
+  VerifySelfOptions,
+} from "./verify-self.js";
+/** This package's own release-time self-registration bundle (plan-2609-02
+ *  step 2.4). Defaults to the `known-log-key` root with the bundle's own
+ *  key — see docs/self-registration.md for why `genesis` is not the
+ *  default. */
+export { summarizeSelf, verifySelf } from "./verify-self.js";
+
+export type {
   DecodedClaim,
   DecodedHeaderEntry,
   DecodedReceipt,
