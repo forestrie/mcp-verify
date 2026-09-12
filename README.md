@@ -56,11 +56,11 @@ result says what that root can see:
 | `known-accumulator` | a snapshot of the log's peaks, from a chain read            |
 | `checkpoint-chain`  | a retained chain of `.sth` checkpoints                      |
 
-The roots are not a ladder. The first two check the operator's signature
+The roots are not ordered by strength. The first two check the operator's signature
 locally and cannot see a split view. The last two match the peak against an
 accumulator the operator does not control, and can. Every result answers
 four questions, **sealing**, **split-view**, **append-authority** and
-**attribution**, each `ok`, `failed`, or `not_answered_at_this_rung`. The
+**attribution**, each `ok`, `failed`, or `not_answered_by_this_root`. The
 last is a real answer and must reach the user; a client that renders only
 `ok` is using this tool wrong.
 

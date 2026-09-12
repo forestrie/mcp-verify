@@ -106,7 +106,7 @@ A hard exit truncates whatever the transport had buffered.
 
 Every tool result carries `stages[]` (what ran) **and** `questions` (what that
 is evidence for) **and** `diagnostics[]` (what the arithmetic could not
-separate). `not_answered_at_this_rung` is a real answer and must survive to the
+separate). `not_answered_by_this_root` is a real answer and must survive to the
 user. The one-line text summary names the root and the unanswered questions.
 
 If you find yourself simplifying an output because it seems verbose, you are
@@ -114,7 +114,7 @@ removing the product. See `docs/trust-roots.md`.
 
 ## Two runtime behaviours that look like bugs and are not
 
-Both are asserted in `test/core/rung-table.test.ts` with comments. Read
+Both are asserted in `test/core/root-table.test.ts` with comments. Read
 `docs/trust-roots.md` before "fixing" either.
 
 1. **A flipped signature byte passes under the `known-accumulator` root.** That

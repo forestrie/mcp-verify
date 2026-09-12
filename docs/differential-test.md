@@ -110,12 +110,12 @@ Here, `known-accumulator` is a **standalone** root — the accumulator is the
 sole authority, no signature is evaluated, and a path tamper reports
 `peak_not_in_known_accumulator` with `split-view: failed`. That is what
 produces the separation the whole package exists to demonstrate, and it is
-what the `TrustRung` input union describes: the `known-accumulator` variant
+what the `TrustRoot` input union describes: the `known-accumulator` variant
 takes no genesis and no key.
 
 Comparing them would be comparing two different questions. Recorded here rather
 than papered over, and asserted on our side in
-`test/core/rung-table.test.ts`. See [trust-roots.md](trust-roots.md).
+`test/core/root-table.test.ts`. See [trust-roots.md](trust-roots.md).
 
 ## Cases deliberately not in the matrix
 
