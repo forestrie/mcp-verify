@@ -1,7 +1,7 @@
 /**
- * The checkpoint-chain rung, over the FOR-368 burial bundle.
+ * The checkpoint-chain root, over the FOR-368 burial bundle.
  *
- * What this rung does: fold the retained `.sth` chain from its boundary base,
+ * What this root does: fold the retained `.sth` chain from its boundary base,
  * verifying each link's signature over the accumulator its own consistency
  * proof derives, then look for the receipt's recomputed peak in ANY
  * authenticated link. A match at any link is proof, because each later link's
@@ -48,7 +48,7 @@ describe("the retained checkpoint chain folds and authenticates", () => {
   /**
    * Not a test of this package's code so much as a test that the fixture and
    * the library still agree — but it is the precondition for everything the
-   * rung claims, so it fails loudly here rather than confusingly downstream.
+   * root claims, so it fails loudly here rather than confusingly downstream.
    */
   it("all four links verify and fold to the manifest's final accumulator", async () => {
     const rootKey = await importEs256PublicKeyFromGrantDataXy64(CHAIN_KEY_XY);
@@ -80,14 +80,14 @@ describe("the retained checkpoint chain folds and authenticates", () => {
       BURIAL_MANIFEST.finalAccumulatorHex,
     );
     // The buried peak is link 0's accumulator — the peak the live state no
-    // longer holds, and the reason this rung exists.
+    // longer holds, and the reason this root exists.
     expect(chain.links[0]?.accumulator.map(hex)).toContain(
       BURIAL_MANIFEST.buriedPeakHex,
     );
   });
 });
 
-describe("verifyGrantReceipt at the checkpoint-chain rung", () => {
+describe("verifyGrantReceipt at the checkpoint-chain root", () => {
   it("reports peak_not_in_checkpoint_chain for a receipt from a different log", async () => {
     const c = grantCases()[0]!;
     const r = await verifyGrantReceipt({
@@ -95,7 +95,7 @@ describe("verifyGrantReceipt at the checkpoint-chain rung", () => {
       committedGrant: c.committedGrant,
       entryId: c.entryId,
       trust: {
-        rung: "checkpoint-chain",
+        root: "checkpoint-chain",
         checkpoints: CHAIN,
         keyXy: CHAIN_KEY_XY,
       },
@@ -116,7 +116,7 @@ describe("verifyGrantReceipt at the checkpoint-chain rung", () => {
       committedGrant: c.committedGrant,
       entryId: c.entryId,
       trust: {
-        rung: "checkpoint-chain",
+        root: "checkpoint-chain",
         checkpoints: CHAIN,
         keyXy: CHAIN_KEY_XY,
         genesis: GENESIS,
@@ -132,7 +132,7 @@ describe("verifyGrantReceipt at the checkpoint-chain rung", () => {
       receipt: c.receipt,
       committedGrant: c.committedGrant,
       entryId: c.entryId,
-      trust: { rung: "checkpoint-chain", checkpoints: CHAIN },
+      trust: { root: "checkpoint-chain", checkpoints: CHAIN },
     });
     expect(r.ok).toBe(false);
     expect(r.stage).toBe("parse");
@@ -147,7 +147,7 @@ describe("verifyGrantReceipt at the checkpoint-chain rung", () => {
       entryId: c.entryId,
       // The golden log's key, against the burial log's chain.
       trust: {
-        rung: "checkpoint-chain",
+        root: "checkpoint-chain",
         checkpoints: CHAIN,
         keyXy: GOLDEN_KEY_XY,
       },

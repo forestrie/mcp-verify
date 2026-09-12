@@ -1,6 +1,6 @@
 {
   "name": "@forestrie/mcp-verify",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "license": "MIT",
   "type": "module",
   "description": "MCP verification server for Forestrie receipts \u2014 offline, no backend, no key, no network",

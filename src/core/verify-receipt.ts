@@ -1,5 +1,5 @@
 /**
- * Payload receipt verification, all four rungs. Mirrors `forestrie verify` —
+ * Payload receipt verification, all four roots. Mirrors `forestrie verify` —
  * the generic, SCITT-compatible path: the leaf commits
  * `SHA-256(idtimestamp ‖ SHA-256(payload))` and the caller passes the EXACT
  * registered payload bytes.
@@ -12,7 +12,7 @@ import {
   type ReceiptVerifyResult,
 } from "@forestrie/receipt-verify";
 import type { VerifyResult } from "./result.js";
-import type { TrustRung } from "./rung.js";
+import type { TrustRoot } from "./root.js";
 import {
   assembleResult,
   importKnownLogKey,
@@ -30,7 +30,7 @@ export type VerifyReceiptInput = {
   payload: Uint8Array;
   /** 32 lowercase hex = idtimestamp_be8 ‖ mmrIndex_be8. */
   entryId: string;
-  trust: TrustRung;
+  trust: TrustRoot;
 };
 
 /** SHA-256 over the payload — the leaf's inner ContentHash. */
@@ -41,9 +41,9 @@ async function innerHash(payload: Uint8Array): Promise<Uint8Array> {
   );
 }
 
-async function rootKeysFor(trust: TrustRung): Promise<CryptoKey[]> {
+async function rootKeysFor(trust: TrustRoot): Promise<CryptoKey[]> {
   const keys: CryptoKey[] = [];
-  if (trust.rung === "checkpoint-chain") {
+  if (trust.root === "checkpoint-chain") {
     if (trust.keyXy !== undefined) {
       keys.push(await importKnownLogKey(trust.keyXy));
     }
@@ -58,7 +58,7 @@ async function rootKeysFor(trust: TrustRung): Promise<CryptoKey[]> {
 export async function verifyReceipt(
   input: VerifyReceiptInput,
 ): Promise<VerifyResult> {
-  const rung = input.trust.rung;
+  const root = input.trust.root;
   const detachedPayload = isDetachedPayload(input.receipt);
 
   let idtimestampBe8: Uint8Array;
@@ -66,7 +66,7 @@ export async function verifyReceipt(
     idtimestampBe8 = entryIdHexToIdtimestampBe8(input.entryId);
   } catch (err) {
     return inputFailureResult(
-      rung,
+      root,
       "payload",
       `entryId must be 32 lowercase hex (idtimestamp_be8 ‖ mmrIndex_be8): ${
         err instanceof Error ? err.message : String(err)
@@ -75,7 +75,7 @@ export async function verifyReceipt(
   }
 
   try {
-    switch (input.trust.rung) {
+    switch (input.trust.root) {
       case "genesis": {
         const result = await verifyReceiptOffline({
           genesisCbor: input.trust.genesis,
@@ -84,7 +84,7 @@ export async function verifyReceipt(
           idtimestampBe8,
         });
         return assembleResult({
-          rung,
+          root,
           kind: "payload",
           result,
           detachedPayload,
@@ -101,7 +101,7 @@ export async function verifyReceipt(
           }),
         );
         return assembleResult({
-          rung,
+          root,
           kind: "payload",
           result,
           detachedPayload,
@@ -115,7 +115,7 @@ export async function verifyReceipt(
           accumulatorBytes: input.trust.accumulator,
         });
         return assembleResult({
-          rung,
+          root,
           kind: "payload",
           result,
           detachedPayload,
@@ -131,7 +131,7 @@ export async function verifyReceipt(
           rootKeys: await rootKeysFor(input.trust),
         });
         return assembleResult({
-          rung,
+          root,
           kind: "payload",
           result,
           detachedPayload,
@@ -141,7 +141,7 @@ export async function verifyReceipt(
     }
   } catch (err) {
     if (err instanceof VerifyInputError) {
-      return inputFailureResult(rung, "payload", err.message);
+      return inputFailureResult(root, "payload", err.message);
     }
     throw err;
   }

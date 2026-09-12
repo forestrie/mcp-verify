@@ -5,20 +5,17 @@ is related to, and therefore which questions the answer can reach. You do not
 ask for "verification". You say which root you trust, and the result says what
 that root can see.
 
-The four roots are not a ladder. Two are **signature roots**: they rest on a
-key and check the receipt's signature locally. Two are **accumulator roots**:
-they rest on an accumulator the operator does not control, match the peak
-against it, and evaluate no signature at all. A receipt that verifies under
-one and not the other is not a contradiction; they ask different questions.
-Which root is right depends on what you hold and what you need to know. The
-reference CLI calls the same four a "trust ladder" of "rungs", though its own
-[trust model](https://github.com/forestrie/forestrie-cli/blob/main/TRUST-MODEL.md)
-says they are not a single "more vs less trust" line. The field is named
-`rung` for compatibility.
+The four roots are not ordered by strength. Two are **signature roots**: they
+rest on a key and check the receipt's signature locally. Two are
+**accumulator roots**: they rest on an accumulator the operator does not
+control, match the peak against it, and evaluate no signature at all. A
+receipt that verifies under one and not the other is not a contradiction;
+they ask different questions. Which root is right depends on what you hold
+and what you need to know. The reference CLI selects the root by flag.
 
 Everything below is reproducible from the bundled fixtures with
 `npx @forestrie/mcp-verify demo` and asserted by
-`test/core/rung-table.test.ts`. Background on what transparency is and what a
+`test/core/root-table.test.ts`. Background on what transparency is and what a
 receipt contains: [TRANSPARENCY.md](../TRANSPARENCY.md).
 
 | Root                | What you supply                                                              | What the verdict rests on                                                                                |
@@ -101,7 +98,7 @@ fails on any edge to a node builtin, let alone a socket.
 ## The four questions
 
 A bare "valid" names no question. Every result carries these four, each
-`ok`, `failed`, or `not_answered_at_this_rung`, with a one-line note:
+`ok`, `failed`, or `not_answered_by_this_root`, with a one-line note:
 
 | Question                                                               | Name                 | Answered under                                                                   | Trust anchor                                                                   |
 | ---------------------------------------------------------------------- | -------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
@@ -110,7 +107,7 @@ A bare "valid" names no question. Every result carries these four, each
 | Did the leaf signer have authority to write to the log?                | **append-authority** | `verify_grant_receipt` only, under any root                                      | the committed grant that admitted the signer, itself sealed into the log       |
 | Who signed this leaf?                                                  | **attribution**      | every root                                                                       | your own copy of the payload bytes and the entry id the leaf commits           |
 
-**`not_answered_at_this_rung` is a real answer** and must reach the user. A
+**`not_answered_by_this_root` is a real answer** and must reach the user. A
 client that renders only `ok` is using this tool wrong.
 
 ## The stage collapse: what a signature root cannot distinguish
@@ -146,7 +143,7 @@ the verifier.
 The design was written before the arithmetic was run. Where they disagreed the
 runtime won, because a plan is a hypothesis about arithmetic and the
 arithmetic is the authority. All three are asserted deliberately in
-`test/core/rung-table.test.ts` so nobody "fixes" them back.
+`test/core/root-table.test.ts` so nobody "fixes" them back.
 
 ### 1. A flipped signature byte PASSES under an accumulator root
 
@@ -187,7 +184,7 @@ The separation is real; it just lives in `reason` and in
 tool output rather than leaving a reader to infer it. Filed upstream as a
 finding.
 
-### 3. This package's `known-accumulator` means something different from the CLI's
+### 3. This package's `known-accumulator` means something different from the CLI's, for now
 
 `forestrie verify --known-accumulator` runs the genesis or known-key verify
 **first** and checks the anchor only if that passed, so its stage collapse
@@ -195,6 +192,10 @@ survives into the accumulator check. Here the accumulator is the sole
 authority and no signature is evaluated. That is what produces the
 separation, and it is why the two accumulator roots are outside the
 differential matrix: see [differential-test.md](differential-test.md).
+
+A planned CLI change lets `--known-accumulator` stand alone the same way,
+closing this gap; until it ships, the two implementations disagree here by
+design, not by accident.
 
 ## The stages, and why they are also reported
 
@@ -220,31 +221,31 @@ receipt and 160 bytes of genesis ship inside the package.
 The log's own genesis document is the trust root.
 
   the frozen receipt, untouched:
-    verify-grant: PASS · rung=genesis · sealing ok, split-view not answered at this rung, append-authority ok, attribution ok
+    verify-grant: PASS · root=genesis · sealing ok, split-view not answered at this root, append-authority ok, attribution ok
       parse      ok
       signature  ok
       inclusion  ok
       binding    ok
       ! detached_payload_stage_collapse
-      ! rung_answers_no_split_view
+      ! root_answers_no_split_view
 
   the same receipt, one SIGNATURE byte flipped:
-    verify-grant: FAILED at signature (signature_invalid) · rung=genesis · sealing failed, split-view not answered at this rung, append-authority failed, attribution failed
+    verify-grant: FAILED at signature (signature_invalid) · root=genesis · sealing failed, split-view not answered at this root, append-authority failed, attribution failed
       parse      ok
       signature  failed   — signature_invalid
       inclusion  skipped
       binding    skipped
       ! detached_payload_stage_collapse
-      ! rung_answers_no_split_view
+      ! root_answers_no_split_view
 
   the same receipt, a wrong IDTIMESTAMP:
-    verify-grant: FAILED at signature (signature_invalid) · rung=genesis · sealing failed, split-view not answered at this rung, append-authority failed, attribution failed
+    verify-grant: FAILED at signature (signature_invalid) · root=genesis · sealing failed, split-view not answered at this root, append-authority failed, attribution failed
       parse      ok
       signature  failed   — signature_invalid
       inclusion  skipped
       binding    skipped
       ! detached_payload_stage_collapse
-      ! rung_answers_no_split_view
+      ! root_answers_no_split_view
 
 Look at those last two. Different tampers. Same answer:
 stage=signature reason=signature_invalid. [...]
@@ -258,7 +259,7 @@ fixtures. That makes the PASS below a self-consistency check, not an
 independent one. [...]
 
   the frozen receipt, untouched:
-    verify-grant: PASS · rung=known-accumulator · sealing ok, split-view ok, append-authority ok, attribution ok
+    verify-grant: PASS · root=known-accumulator · sealing ok, split-view ok, append-authority ok, attribution ok
       parse      ok
       signature  ok       — not re-checked locally — enforced by univocity at publish; an anchored peak match implies a valid publishing signature
       inclusion  ok
@@ -266,7 +267,7 @@ independent one. [...]
       anchor     ok       — peak 1/1 at anchored size 2
 
   the same receipt, a wrong IDTIMESTAMP:
-    verify-grant: FAILED at signature (peak_not_in_known_accumulator) · rung=known-accumulator · sealing failed, split-view failed, append-authority failed, attribution failed
+    verify-grant: FAILED at signature (peak_not_in_known_accumulator) · root=known-accumulator · sealing failed, split-view failed, append-authority failed, attribution failed
       parse      ok
       signature  failed   — peak_not_in_known_accumulator
       inclusion  skipped
@@ -277,7 +278,7 @@ independent one. [...]
 Same bytes. More questions answered. [...]
 
   one SIGNATURE byte flipped, under the accumulator root:
-    verify-grant: PASS · rung=known-accumulator · sealing ok, split-view ok, append-authority ok, attribution ok
+    verify-grant: PASS · root=known-accumulator · sealing ok, split-view ok, append-authority ok, attribution ok
 
 It PASSES. This root evaluates no signature at all. [...]
 ```

@@ -27,20 +27,20 @@ const pkg = JSON.parse(readFileSync(`${repoRoot}package.json`, "utf8")) as {
  * The golden genesis's bootstrap key (label -68015) is byte-identical to the
  * manifest's `grantDataHex` — the fixture generator uses one P-256 key for
  * both the log's trust root and the grant's committed key material. That is
- * what makes the known-log-key rung testable from the manifest alone.
+ * what makes the known-log-key root testable from the manifest alone.
  */
 const KEY_XY = fromHex(GOLDEN_MANIFEST.grantDataHex);
 
 const clean = () => grantCases()[0]!;
 
 describe("verifyGrantReceipt — the frozen receipt against the frozen genesis", () => {
-  it("verifies at the genesis rung", async () => {
+  it("verifies at the genesis root", async () => {
     const c = clean();
     const result = await verifyGrantReceipt({
       receipt: c.receipt,
       committedGrant: c.committedGrant,
       entryId: c.entryId,
-      trust: { rung: "genesis", genesis: GENESIS },
+      trust: { root: "genesis", genesis: GENESIS },
     });
     expect(result.ok).toBe(true);
     expect(result.stage).toBe("binding");
@@ -63,16 +63,16 @@ describe("verifyGrantReceipt — the frozen receipt against the frozen genesis",
     expect(goldenEntryId()).toMatch(/^[0-9a-f]{32}$/);
   });
 
-  it("verifies at the known-log-key rung, and says the anchor is not genesis", async () => {
+  it("verifies at the known-log-key root, and says the anchor is not genesis", async () => {
     const c = clean();
     const result = await verifyGrantReceipt({
       receipt: c.receipt,
       committedGrant: c.committedGrant,
       entryId: c.entryId,
-      trust: { rung: "known-log-key", keyXy: KEY_XY },
+      trust: { root: "known-log-key", keyXy: KEY_XY },
     });
     expect(result.ok).toBe(true);
-    expect(result.rung).toBe("known-log-key");
+    expect(result.root).toBe("known-log-key");
     const signature = result.stages.find((r) => r.stage === "signature");
     expect(signature?.reason).toContain("caller-known log key");
   });
@@ -85,7 +85,7 @@ describe("verifyGrantReceipt — the frozen receipt against the frozen genesis",
       receipt: c.receipt,
       committedGrant: c.committedGrant,
       entryId: c.entryId,
-      trust: { rung: "known-log-key", keyXy: otherLog },
+      trust: { root: "known-log-key", keyXy: otherLog },
     });
     expect(result.ok).toBe(false);
   });
@@ -104,7 +104,7 @@ describe("verifyGrantReceipt — the frozen receipt against the frozen genesis",
       receipt: c.receipt,
       committedGrant: c.committedGrant,
       entryId: c.entryId,
-      trust: { rung: "known-log-key", keyXy: wrong },
+      trust: { root: "known-log-key", keyXy: wrong },
     });
     expect(result.ok).toBe(false);
     expect(result.stage).toBe("parse");
@@ -117,7 +117,7 @@ describe("verifyGrantReceipt — the frozen receipt against the frozen genesis",
       receipt: c.receipt,
       committedGrant: c.committedGrant,
       entryId: c.entryId,
-      trust: { rung: "known-log-key", keyXy: new Uint8Array(32) },
+      trust: { root: "known-log-key", keyXy: new Uint8Array(32) },
     });
     expect(result.ok).toBe(false);
     expect(result.reason).toMatch(/64 bytes/);
@@ -145,14 +145,14 @@ describe("verifyGrantReceipt — input validation is ours, not the reference's",
       receipt: c.receipt,
       committedGrant: new Uint8Array([0xff, 0xff, 0xff]),
       entryId: c.entryId,
-      trust: { rung: "genesis", genesis: GENESIS },
+      trust: { root: "genesis", genesis: GENESIS },
     });
     expect(result.ok).toBe(false);
     expect(result.stage).toBe("parse");
     expect(result.reason).toMatch(/neither a Forestrie-Grant COSE Sign1/);
     // A failed run still answers the questions it can, and says which it cannot.
     expect(result.questions["split-view"].status).toBe(
-      "not_answered_at_this_rung",
+      "not_answered_by_this_root",
     );
   });
 
@@ -161,18 +161,18 @@ describe("verifyGrantReceipt — input validation is ours, not the reference's",
     const result = await verifyGrantReceipt({
       receipt: c.receipt,
       committedGrant: c.committedGrant,
-      trust: { rung: "genesis", genesis: GENESIS },
+      trust: { root: "genesis", genesis: GENESIS },
     });
     expect(result.ok).toBe(false);
     expect(result.stage).toBe("parse");
     expect(result.reason).toMatch(/supply entryId/);
   });
 
-  it("never throws for any tamper variant at any of the two offline rungs", async () => {
+  it("never throws for any tamper variant at any of the two offline roots", async () => {
     for (const c of grantCases()) {
       for (const trust of [
-        { rung: "genesis" as const, genesis: GENESIS },
-        { rung: "known-log-key" as const, keyXy: KEY_XY },
+        { root: "genesis" as const, genesis: GENESIS },
+        { root: "known-log-key" as const, keyXy: KEY_XY },
       ]) {
         await expect(
           verifyGrantReceipt({

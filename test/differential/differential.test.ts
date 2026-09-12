@@ -1,7 +1,7 @@
 /**
  * The only test that proves "agrees with the reference exactly".
  *
- * For each tamper variant × rung, materialise the inputs into a temp dir, run
+ * For each tamper variant × root, materialise the inputs into a temp dir, run
  * `forestrie verify-grant --json`, run our `verifyGrantReceipt()` over the
  * same bytes, and compare the four fields the CLI's `VerifyReport` contract
  * names: `ok`, `stage`, `reason`, `stages`. `questions`, `diagnostics` and
@@ -125,9 +125,9 @@ function comparable(r: {
 }
 
 /**
- * The known-log-key rung rewrites the narration of PASSING rows
+ * The known-log-key root rewrites the narration of PASSING rows
  * (`knownKeyStageRows`), and both implementations do it identically — so the
- * reasons compare too. The genesis rung leaves passing rows bare.
+ * reasons compare too. The genesis root leaves passing rows bare.
  */
 describe.skipIf(!bin)(`differential vs forestrie ${CLI_TAG}`, () => {
   it("(guard) the pinned binary resolved and matched its digest", () => {
@@ -143,7 +143,7 @@ describe.skipIf(!bin)(`differential vs forestrie ${CLI_TAG}`, () => {
 
   for (const c of grantCases()) {
     describe(`${c.name} — ${c.what}`, () => {
-      it("genesis rung: ok/stage/reason/stages match", async () => {
+      it("genesis root: ok/stage/reason/stages match", async () => {
         const paths = materialise(c);
         const run = runCli(bin!, [
           "verify-grant",
@@ -162,14 +162,14 @@ describe.skipIf(!bin)(`differential vs forestrie ${CLI_TAG}`, () => {
           receipt: c.receipt,
           committedGrant: c.committedGrant,
           entryId: c.entryId,
-          trust: { rung: "genesis", genesis: GENESIS },
+          trust: { root: "genesis", genesis: GENESIS },
         });
         expect(comparable(ours)).toEqual(comparable(theirs));
         // Exit code is part of the contract for a demo script.
         expect(run.status).toBe(theirs.ok ? 0 : 1);
       });
 
-      it("known-log-key rung: ok/stage/reason/stages match", async () => {
+      it("known-log-key root: ok/stage/reason/stages match", async () => {
         const paths = materialise(c);
         const run = runCli(bin!, [
           "verify-grant",
@@ -188,7 +188,7 @@ describe.skipIf(!bin)(`differential vs forestrie ${CLI_TAG}`, () => {
           receipt: c.receipt,
           committedGrant: c.committedGrant,
           entryId: c.entryId,
-          trust: { rung: "known-log-key", keyXy: KEY_XY },
+          trust: { root: "known-log-key", keyXy: KEY_XY },
         });
         expect(comparable(ours)).toEqual(comparable(theirs));
       });
