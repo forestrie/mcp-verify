@@ -107,21 +107,21 @@ A hard exit truncates whatever the transport had buffered.
 Every tool result carries `stages[]` (what ran) **and** `questions` (what that
 is evidence for) **and** `diagnostics[]` (what the arithmetic could not
 separate). `not_answered_at_this_rung` is a real answer and must survive to the
-user. The one-line text summary names the rung and the unanswered questions.
+user. The one-line text summary names the root and the unanswered questions.
 
 If you find yourself simplifying an output because it seems verbose, you are
-removing the product. See `docs/trust-ladder.md`.
+removing the product. See `docs/trust-roots.md`.
 
 ## Two runtime behaviours that look like bugs and are not
 
 Both are asserted in `test/core/rung-table.test.ts` with comments. Read
-`docs/trust-ladder.md` before "fixing" either.
+`docs/trust-roots.md` before "fixing" either.
 
-1. **A flipped signature byte passes at the `known-accumulator` rung.** That
-   rung evaluates no signature; the anchor is the authority. Making it
-   re-check the signature would destroy the separation the ladder exists to
+1. **A flipped signature byte passes under the `known-accumulator` root.** That
+   root evaluates no signature; the anchor is the authority. Making it
+   re-check the signature would destroy the separation the accumulator root exists to
    demonstrate.
-2. **The `known-accumulator` rung reports failures as `stage=signature`.**
+2. **The `known-accumulator` root reports failures as `stage=signature`.**
    That is upstream's label, passed through verbatim so `stages[]` stays
    comparable with the reference CLI. The separation lives in `reason` and in
    `questions`.
@@ -129,7 +129,7 @@ Both are asserted in `test/core/rung-table.test.ts` with comments. Read
 ## `stageRows`' unknown-stage branch
 
 `src/core/stages.ts` has a branch for a stage `VERIFY_STAGES` does not know.
-It is not dead code — it is the F3 fix. Degrading an unknown failed stage to
+It is not dead code — it is a deliberate fix. Degrading an unknown failed stage to
 four silent "skipped" rows would **hide the failure**. Do not simplify it away.
 
 ## Tests
@@ -159,6 +159,18 @@ The whole policy for one package: merge a version-bump PR, then
 `git tag v0.1.1 && git push --tags`. `scripts/assert-publish-version.sh` makes
 a mistyped tag fail closed, and CI self-tests both its pass and fail paths on
 every PR.
+
+1. Bump `version` in `package.json` **and** `PACKAGE_VERSION` in
+   `src/core/version.ts` in the same PR. The MCP smoke test asserts they
+   agree, so a forgotten bump is a red test rather than a lie in `initialize`.
+2. Merge to `main`.
+3. `git tag v<version> && git push --tags`.
+4. `publish.yml` asserts the tag matches `package.json`, runs the full gate,
+   builds, packs, and publishes via OIDC trusted publishing with provenance.
+5. Confirm `npm view @forestrie/mcp-verify dist.attestations` is populated.
+
+The **first** publish must be by hand: npm's trusted-publisher registration
+cannot be created for a package that does not exist yet.
 
 **Do not add `mcpName` to `package.json`, and do not create `server.json`.**
 Both are phase 3, and they must land in the same PR as the apex DNS TXT record

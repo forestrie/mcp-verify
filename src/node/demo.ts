@@ -1,10 +1,10 @@
 /**
- * `demo` — the D3 ladder over the bundled fixtures.
+ * `demo` — two trust roots over the bundled fixtures.
  *
  * The point of the transcript is not that a receipt verifies. It is that the
- * SAME BYTES answer different questions at different rungs, and that at the
- * lower rung four structurally different tampers are one indistinguishable
- * answer. A demo that only showed a pass would be showing the least
+ * SAME BYTES answer different questions under different trust roots, and
+ * that under a signature root four structurally different tampers are one
+ * indistinguishable answer. A demo that only showed a pass would be showing the least
  * interesting thing this package does.
  *
  * Everything printed here goes to the caller's writer, never to `console`
@@ -83,7 +83,7 @@ function printResult(write: Writer, label: string, r: VerifyResult): void {
 
 /**
  * Build a known-accumulator snapshot from the clean receipt's own recomputed
- * peak, so the demo can run the upper rung with no network and no fixture
+ * peak, so the demo can run an accumulator root with no network and no fixture
  * that does not ship.
  *
  * SAY THIS OUT LOUD IN THE TRANSCRIPT, because it is the difference between a
@@ -122,7 +122,7 @@ export async function runDemo(write: Writer): Promise<number> {
   const entryId = goldenEntryId();
 
   write("");
-  write("@forestrie/mcp-verify — the trust ladder over the bundled fixtures");
+  write("@forestrie/mcp-verify — two trust roots over the bundled fixtures");
   write("");
   write("No network. No account. No key. No backend. These 118 bytes of");
   write("receipt and 160 bytes of genesis ship inside the package.");
@@ -144,7 +144,7 @@ export async function runDemo(write: Writer): Promise<number> {
 
   const genesisRung: TrustRung = { rung: "genesis", genesis };
 
-  write("── Rung 1: genesis ───────────────────────────────────────────────");
+  write("── Trust root: genesis ───────────────────────────────────────────");
   write("The log's own genesis document is the trust root.");
   write("");
   printResult(write, "the frozen receipt, untouched:", await at(genesisRung));
@@ -177,7 +177,7 @@ export async function runDemo(write: Writer): Promise<number> {
     accumulator: snapshot,
   };
 
-  write("── Rung 2: known-accumulator ─────────────────────────────────────");
+  write("── Trust root: known-accumulator ─────────────────────────────────");
   write("Now the trust root is an accumulator snapshot the CALLER holds.");
   write("");
   write("NOTE: this demo derives the snapshot from the clean receipt's own");
@@ -210,20 +210,20 @@ export async function runDemo(write: Writer): Promise<number> {
   write("");
   printResult(
     write,
-    "one SIGNATURE byte flipped, at the accumulator rung:",
+    "one SIGNATURE byte flipped, under the accumulator root:",
     await at(accumulatorRung, { receipt: tamperSignature(receipt) }),
   );
-  write("It PASSES. This rung evaluates no signature at all. The recomputed");
+  write("It PASSES. This root evaluates no signature at all. The recomputed");
   write("peak comes from leaf + inclusion path, neither of which a signature");
   write("flip touches — and a peak that matches a consistency-gated on-chain");
   write("accumulator IS the proof, because univocity refuses to publish a");
   write("checkpoint whose signature does not verify. The 'sealing' answer");
   write("says exactly that: ok, implied by the anchor.");
   write("");
-  write("That is the ladder. Never a bare 'valid' — always which anchor, and");
-  write("which questions that anchor can and cannot answer.");
+  write("That is the point. Never a bare 'valid' — always which root, and");
+  write("which questions that root can and cannot answer.");
   write("");
-  write("docs/trust-ladder.md has the full table.");
+  write("docs/trust-roots.md has the full table.");
   write("");
   return 0;
 }

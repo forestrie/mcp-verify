@@ -3,7 +3,7 @@
  *
  *   <no args>          → StdioServerTransport; this is what
  *                        `npx -y @forestrie/mcp-verify` does (D6).
- *   demo               → run the D3 ladder over the bundled fixtures.
+ *   demo               → run two trust roots over the bundled fixtures.
  *   verify --self      → PHASE 2. Recognised now, and refused with a version
  *                        number rather than an unknown-command error.
  *   --help | --version → text on stdout, exit 0.
@@ -36,7 +36,7 @@ const HELP = `forestrie-mcp-verify ${PACKAGE_VERSION}
 
 USAGE
   forestrie-mcp-verify              start the MCP server on stdio (the default)
-  forestrie-mcp-verify demo         run the trust ladder over the bundled fixtures
+  forestrie-mcp-verify demo         run two trust roots over the bundled fixtures
   forestrie-mcp-verify verify --self   verify this package's own registration (v0.2.0)
   forestrie-mcp-verify --help
   forestrie-mcp-verify --version
@@ -46,14 +46,16 @@ TOOLS
   verify_grant_receipt   grant receipt + committed grant + trust rung
   decode_receipt         CBOR to JSON. No verification.
 
-TRUST RUNGS
+TRUST ROOTS (the "rung" field)
   genesis             the log's genesis document
   known-log-key       a log owner key you hold out of band
   known-accumulator   an on-chain accumulator snapshot you hold
   checkpoint-chain    a retained .sth chain you hold
 
-  The rung decides which of the four trust questions can be answered.
-  Only the upper two answer split-view. The tool always says which.
+  The root decides which of the four trust questions can be answered.
+  Only known-accumulator and checkpoint-chain answer split-view. The tool
+  always says which. They are not a ladder: which root is right depends
+  on what you hold and what you need to know.
 
 CLIENT CONFIG
   {"mcpServers": {"forestrie-verify":

@@ -48,8 +48,7 @@ no release asset for linux-arm64, darwin-x64 or Windows, so those hosts skip.
 
 ### Why a binary and not the source
 
-The parent plan's phase-1 step 5 says "CLI exported at a pinned tag, run via
-Bun in CI". This deviates, deliberately:
+The original plan said "CLI exported at a pinned tag, run via Bun in CI". This deviates, deliberately:
 
 1. It removes Bun from this repo entirely, CI included. The toolchain is mise
    node + pnpm and nothing else, and "does the toolchain contain Bun" has a
@@ -68,7 +67,8 @@ a feature — released behaviour is what an outsider can reproduce.
 ## What is compared
 
 For each of the seven variants (`clean` plus the six tampers, generated
-in-test, never committed as files) × two rungs (`genesis`, `known-log-key`):
+in-test, never committed as files) × the two signature roots (`genesis`,
+`known-log-key`):
 
 1. Materialise the bytes into a `mkdtemp` dir — the CLI is file-oriented.
 2. `forestrie verify-grant --json --genesis … --receipt … --committed-grant-file … --entry-id …`
@@ -96,26 +96,26 @@ subset and turned out to reproduce the reference output exactly — nested CBOR
 rendering of header 396 included. The assertion started as a subset match and
 was strengthened to a deep-equal only once the runtime showed it held.
 
-## The two rungs deliberately outside the matrix
+## The two accumulator roots deliberately outside the matrix
 
 `known-accumulator` and `checkpoint-chain` are **not** compared, and this is a
 design difference rather than a disagreement:
 
 `forestrie verify --known-accumulator` runs the genesis/known-key offline
 verify **first**, and checks the anchor only if that passed. So the
-detached-payload stage collapse survives into its anchored rung: a path tamper
+detached-payload stage collapse survives into its accumulator check: a path tamper
 still reports `signature_invalid` there.
 
-Here, `known-accumulator` is a **standalone** rung — the accumulator is the
+Here, `known-accumulator` is a **standalone** root — the accumulator is the
 sole authority, no signature is evaluated, and a path tamper reports
 `peak_not_in_known_accumulator` with `split-view: failed`. That is what
-produces the D3 separation the whole package exists to demonstrate, and it is
-what D2's rung union describes: the `known-accumulator` variant takes no
-genesis and no key.
+produces the separation the whole package exists to demonstrate, and it is
+what the `TrustRung` input union describes: the `known-accumulator` variant
+takes no genesis and no key.
 
 Comparing them would be comparing two different questions. Recorded here rather
 than papered over, and asserted on our side in
-`test/core/rung-table.test.ts`. See [trust-ladder.md](trust-ladder.md).
+`test/core/rung-table.test.ts`. See [trust-roots.md](trust-roots.md).
 
 ## Cases deliberately not in the matrix
 

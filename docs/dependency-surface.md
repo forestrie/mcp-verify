@@ -33,7 +33,7 @@ Also used here and worth naming: `grantCommitmentHashFromGrant`,
 **Two shape facts that changed the design:**
 
 1. There is **no** `verifyGrantReceiptOfflineAgainstKnownAccumulator`. The
-   known-accumulator rung has exactly one entry point for both receipt kinds,
+   known-accumulator root has exactly one entry point for both receipt kinds,
    and the caller supplies the leaf `inner` hash: `SHA-256(payload)` for a
    payload receipt, `grantCommitmentHashFromGrant(grant)` for a grant receipt.
    That is why `src/core/verify-receipt.ts` and
@@ -42,9 +42,9 @@ Also used here and worth naming: `grantCommitmentHashFromGrant`,
 2. `verifyReceiptOfflineAgainstKnownAccumulator` **does not check any
    signature.** It parses, recomputes the peak from leaf + proof, and matches
    it against the caller's trusted accumulator. That is the correct shape for
-   the rung — the accumulator _is_ the authority — and it is what makes the
-   D3 separation real rather than cosmetic. See
-   [trust-ladder.md](trust-ladder.md).
+   the root — the accumulator _is_ the authority — and it is what makes the
+   separation real rather than cosmetic. See
+   [trust-roots.md](trust-roots.md).
 
 ### The stage label this package does not control
 
@@ -60,7 +60,7 @@ is upstream's choice (`known-accumulator.ts`, both `return` statements), and
 this package passes `stage`/`reason` through **verbatim** so that `stages[]`
 stays byte-comparable with the reference CLI.
 
-Consequence for the D3 table: the separation at the known-accumulator rung
+Consequence for the stage-collapse table: the separation under the accumulator roots
 shows up in the **reason** and in `questions["split-view"]`, not in the stage
 name. The `accumulator_failure_reported_at_signature_stage` diagnostic says so
 in the tool output rather than leaving a reader to guess. Filed as a finding
@@ -123,7 +123,7 @@ Also confirmed present at 0.7.0 and used by the decoder: `decodeCborDeterministi
 
 ## 3. `@modelcontextprotocol/sdk@1.30.0` — zod 4 works directly, no `z.toJSONSchema()` needed
 
-O2's open question was whether `registerTool`'s `outputSchema` path goes
+The open question was whether `registerTool`'s `outputSchema` path goes
 through the SDK's `zod-to-json-schema` dependency (a zod **3** helper) and
 would therefore choke on a zod-4 schema. It does not. Probed against a live
 in-memory client/server pair:
@@ -143,6 +143,20 @@ in-memory client/server pair:
 advertises an `outputSchema` and that a real call's `structuredContent`
 validates against the advertised schema. If a future SDK regresses the zod-4
 path, that test goes red rather than the tools silently losing their schemas.
+
+### Install weight
+
+The SDK pulls a heavy transitive tree — `express`,
+`hono`, `jose`, `cors`, `ajv` — which is an odd shape for a package whose
+pitch is "no backend, no network". Two things are true and worth stating
+rather than letting you discover:
+
+- **`src/core` never imports the SDK.** Take the `"."` export and you get the
+  arithmetic and none of that tree. The browser-safety gate enforces it.
+- The network-capable code in there is the SDK's **unused HTTP transports**.
+  This package constructs only `StdioServerTransport`.
+
+Worth revisiting when the SDK offers a slimmer stdio-only entry.
 
 ## 4. `forestrie-cli` v0.7.0 release assets exist with the expected names
 
