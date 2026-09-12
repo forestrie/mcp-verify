@@ -176,7 +176,7 @@ publish runs `npm publish --provenance=false`; the first attested version is
 the first one `publish.yml` ships.
 
 When registering the trusted publisher on npmjs.com, grant it **publish**
-permission, not the *stage publish* option. A stage-only publisher makes the
+permission, not the _stage publish_ option. A stage-only publisher makes the
 workflow fail at the registry PUT with `403 OIDC permission denied for this
 action` even though org, repo, workflow filename and environment all match.
 
