@@ -92,25 +92,17 @@ asserts as a full deep-equal on two different receipts. That was not assumed;
 the assertion started as a subset match and was strengthened once the runtime
 showed it held.
 
-### That file was a placeholder — DONE (plan-2609-02 step P5.5)
+### That file is a placeholder, and should be deleted
 
-`@forestrie/forestrie-cli@0.8.0` published to npm 2026-09-12 with a pure
-subpath export `@forestrie/forestrie-cli/decode-receipt`, exposing
-`decodeReceipt`, `renderReceipt`, `DecodeReceiptError`, `toJson`,
-`bytesToHex`, the label tables and the same `DecodedReceipt` type. It imports
-only `@forestrie/receipt-verify` and `@forestrie/encoding`.
+`@forestrie/forestrie-cli@0.8.0` (prepared on the `publish-npm` branch, **not
+yet on npm**) makes the CLI a public, Node-runnable package with a pure subpath
+export `@forestrie/forestrie-cli/decode-receipt`, exposing `decodeReceipt`,
+`renderReceipt`, `DecodeReceiptError`, `toJson`, `bytesToHex`, the label tables
+and the same `DecodedReceipt` type. It imports only `@forestrie/receipt-verify`
+and `@forestrie/encoding`.
 
-The swap described below was carried out: `src/core/decode-receipt.ts` is now
-a re-export from the dependency, and both purity gates stayed green
-(`@forestrie/encoding` still dedupes to our exact `0.7.0`; the subpath bundles
-clean for `platform: "browser"`). One thing the swap changed: the CLI's label
-registry does not (yet) carry two forestrie private-use codepoints (header
-label `-65801`, algorithm `-65800`) this repo's prior fresh implementation
-did; neither is exercised by any fixture here, so no test — including the
-differential one, which now runs identical code on both sides for this
-comparison — catches it. See `src/core/decode-receipt.ts`'s header.
-
-The original plan, kept for the record:
+Our public surface is deliberately name- and shape-compatible with it. When it
+publishes:
 
 1. `pnpm add @forestrie/forestrie-cli@0.8.0` (exact pin, like the others).
 2. Delete `src/core/decode-receipt.ts` and re-export from the dependency:
@@ -166,7 +158,7 @@ rather than letting you discover:
 
 Worth revisiting when the SDK offers a slimmer stdio-only entry.
 
-## 4. `forestrie-cli` v0.7.0 release assets exist with the expected names (superseded)
+## 4. `forestrie-cli` v0.7.0 release assets exist with the expected names
 
 ```
 $ gh release view v0.7.0 -R forestrie/forestrie-cli
@@ -176,12 +168,7 @@ forestrie-linux-x64             f211de74dc7944fb15ab652efddd0a9d6517239adea9c98c
 forestrie-linux-x64.sha256
 ```
 
-Published 2026-08-22. The sidecar contents matched GitHub's own asset
-digests, so the differential harness's checksum pin had two independent
-witnesses at the time. **Superseded by plan-2609-02 step P5.5**:
-`@forestrie/forestrie-cli` publishes to npm from 0.8.0, and
-`test/differential/cli-binary.ts` now resolves a pinned npm version
-(`FORESTRIE_CLI_VERSION`) rather than a checksummed GitHub release binary.
-Kept here as the record of what was checked before the npm publish existed;
-current mechanism and rebase procedure are in
-[differential-test.md](differential-test.md).
+Published 2026-08-22. The sidecar contents match GitHub's own asset digests,
+so the differential harness's checksum pin has two independent witnesses. The
+values are pinned in `test/differential/cli-binary.ts`; the rebase procedure
+is in [differential-test.md](differential-test.md).

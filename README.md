@@ -92,11 +92,7 @@ Which is why this repo goes to some trouble to make that re-running possible:
   hide `@forestrie/receipt-verify`'s own SLSA attestation behind ours.
 
 The verification itself is `@forestrie/receipt-verify@1.0.0`, which is
-published, MIT, and SLSA-attested independently of this package. The
-`decode_receipt` rendering is likewise a re-export of
-`@forestrie/forestrie-cli@0.8.0`'s own decoder, not a parallel
-implementation — see [docs/differential-test.md](docs/differential-test.md)
-for how that is kept honest.
+published, MIT, and SLSA-attested independently of this package.
 
 At release time, this package also registers its own provenance in a
 Forestrie log and ships the receipt inside the tarball — two independent
