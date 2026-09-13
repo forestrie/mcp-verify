@@ -130,6 +130,139 @@ describe("selfRegister --dry-run", () => {
   });
 });
 
+describe("selfRegister delegate step", () => {
+  it("delegates before registering, with the documented flags", async () => {
+    const calls: string[][] = [];
+    await selfRegister({
+      dryRun: true,
+      outDir,
+      runCli: (bin: string, args: string[]) => {
+        calls.push(args);
+        if (args[0] === "delegate") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              command: "delegate",
+              status: "submitted",
+              logId: args[args.indexOf("--log-id") + 1],
+              sealerId: "sealer-1",
+              epoch: 3,
+              mmrStart: 0,
+              mmrEnd: 42,
+              expiresAt: "2026-09-14T00:00:00.000Z",
+            }),
+            stderr: "",
+          };
+        }
+        if (args[0] === "register") {
+          writeFileSync(outPathOf(args), "receipt");
+          return {
+            status: 0,
+            stdout: JSON.stringify({ entryId: "0".repeat(32) }),
+            stderr: "",
+          };
+        }
+        writeFileSync(outPathOf(args), "stub-cose");
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    const commands = calls.map((args) => args[0]);
+    expect(commands.indexOf("delegate")).toBeGreaterThanOrEqual(0);
+    expect(commands.indexOf("register")).toBeGreaterThan(
+      commands.indexOf("delegate"),
+    );
+
+    const delegateArgs = calls.find((args) => args[0] === "delegate");
+    expect(delegateArgs).toBeDefined();
+    expect(delegateArgs).toContain("--coordinator-url");
+    expect(delegateArgs).toContain("--log-id");
+    expect(delegateArgs).toContain("--sign-with");
+    expect(delegateArgs).toContain("--known-sealer-key");
+    expect(delegateArgs).toContain("--ttl-seconds");
+    expect(delegateArgs).toContain("86400");
+    expect(delegateArgs).toContain("--json");
+  });
+
+  it("logs the returned expiresAt and mmrEnd", async () => {
+    const logs: string[] = [];
+    await selfRegister({
+      dryRun: true,
+      outDir,
+      log: (msg: string) => logs.push(msg),
+      runCli: (bin: string, args: string[]) => {
+        if (args[0] === "delegate") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              expiresAt: "2026-09-14T00:00:00.000Z",
+              mmrEnd: 12345,
+            }),
+            stderr: "",
+          };
+        }
+        if (args[0] === "register") {
+          writeFileSync(outPathOf(args), "receipt");
+          return {
+            status: 0,
+            stdout: JSON.stringify({ entryId: "0".repeat(32) }),
+            stderr: "",
+          };
+        }
+        writeFileSync(outPathOf(args), "stub-cose");
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    expect(
+      logs.some(
+        (l) =>
+          l.includes("expiresAt=2026-09-14T00:00:00.000Z") &&
+          l.includes("mmrEnd=12345"),
+      ),
+    ).toBe(true);
+  });
+
+  it("a non-zero `forestrie delegate` exit fails the whole run, with the CLI's stderr in the message, before register ever runs", async () => {
+    let sawRegister = false;
+    await expect(
+      selfRegister({
+        dryRun: true,
+        outDir,
+        runCli: (bin: string, args: string[]) => {
+          if (args[0] === "delegate") {
+            return {
+              status: 1,
+              stdout: "",
+              stderr:
+                "delegation material pending: awaiting standing delegation",
+            };
+          }
+          if (args[0] === "register") {
+            sawRegister = true;
+          }
+          writeFileSync(outPathOf(args), "stub-cose");
+          return { status: 0, stdout: "", stderr: "" };
+        },
+      }),
+    ).rejects.toThrow(/delegation material pending/);
+
+    expect(sawRegister).toBe(false);
+  });
+
+  it("has no separate skip mode: --dry-run stubs delegate exactly like it stubs register", async () => {
+    // There is no "run register but skip delegate" path in this script —
+    // the workflow's `rehearsal` dispatch runs both for real (same env, same
+    // `if:`-free step), and --dry-run stubs both via the same stubRunCli. A
+    // missing `delegate` branch in the stub would fall through to its
+    // "unknown command" failure and fail the whole dry run; this passing
+    // means that branch exists and the two commands share one on/off switch.
+    await expect(
+      selfRegister({ dryRun: true, outDir }),
+    ).resolves.toBeDefined();
+  });
+});
+
 describe("selfRegister failure paths", () => {
   it("a non-zero `forestrie register` exit fails the whole run", async () => {
     let sawRegisterArgs: string[] | undefined;
@@ -146,8 +279,18 @@ describe("selfRegister failure paths", () => {
               stderr: "registration_failed: 429 from lane",
             };
           }
-          // sign-statement still succeeds — proves the failure is
-          // specifically attributed to register, not a fall-through.
+          if (args[0] === "delegate") {
+            // delegate still succeeds — proves the failure is specifically
+            // attributed to register, not a fall-through.
+            return {
+              status: 0,
+              stdout: JSON.stringify({
+                expiresAt: "2026-09-14T00:00:00.000Z",
+                mmrEnd: 1,
+              }),
+              stderr: "",
+            };
+          }
           writeFileSync(outPathOf(args), "stub-cose");
           return { status: 0, stdout: "", stderr: "" };
         },
@@ -181,6 +324,14 @@ describe("selfRegister failure paths", () => {
     ).rejects.toThrow(/FORESTRIE_BASE_URL/);
   });
 
+  it("the new delegate env vars are required outside --dry-run too", async () => {
+    await expect(
+      selfRegister({ dryRun: false, outDir, env: {} }),
+    ).rejects.toThrow(
+      /DELEGATION_COORDINATOR_URL.*KNOWN_SEALER_KEY.*FORESTRIE_PUBLICATIONS_LOG_ID/,
+    );
+  });
+
   it("register --json output with no entryId is a failure, not a crash", async () => {
     await expect(
       selfRegister({
@@ -190,6 +341,16 @@ describe("selfRegister failure paths", () => {
           if (args[0] === "register") {
             writeFileSync(outPathOf(args), "receipt");
             return { status: 0, stdout: "{}", stderr: "" };
+          }
+          if (args[0] === "delegate") {
+            return {
+              status: 0,
+              stdout: JSON.stringify({
+                expiresAt: "2026-09-14T00:00:00.000Z",
+                mmrEnd: 1,
+              }),
+              stderr: "",
+            };
           }
           writeFileSync(outPathOf(args), "stub-cose");
           return { status: 0, stdout: "", stderr: "" };

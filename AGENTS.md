@@ -232,6 +232,29 @@ Until both exist, a tag push runs the npm publish exactly as before and then
 fails at the `mcp-publisher login dns` step — the npm release is unaffected;
 only the registry listing is blocked.
 
+**Self-registration's "Register provenance in the Forestrie log" step needs
+two more owner-side variables in the `npm-publish` environment, in addition
+to the ones `docs/self-registration.md` already documents:**
+
+- `DELEGATION_COORDINATOR_URL` and `KNOWN_SEALER_KEY`, both GitHub Actions
+  _variables_ (public values, not secrets). `scripts/self-register.mjs` now
+  runs `forestrie delegate` before `forestrie register`, every release — a
+  receipt needs the operator's sealer to checkpoint the publications log,
+  which needs a delegation certificate from the log owner held by the
+  delegation coordinator, and standing delegations expire after six hours.
+  Without a fresh delegation each run, a release more than six hours after
+  the last hand-run `forestrie delegate` stalls: `register` times out
+  waiting for a receipt that never comes, and the release fails before `npm
+publish`. See `docs/self-registration.md`'s "Delegate before register"
+  section for the full defect and fix.
+- These must be set **before the next tag**; the third variable the
+  `delegate` call needs, `FORESTRIE_PUBLICATIONS_LOG_ID`, is documented
+  alongside them there too.
+
+As of this change, the "Register provenance" step no longer downloads a
+`forestrie` CLI binary — it resolves `@forestrie/forestrie-cli@0.8.0` from
+npm, the same mechanism `test/differential/cli-binary.ts` uses.
+
 ## Links must resolve without org access
 
 This repo is public from the first commit and its pitch is that its claims are
