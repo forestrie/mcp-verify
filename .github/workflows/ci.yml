@@ -91,17 +91,19 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      # The pinned binary is ~100 MB; fetch it once per tag. Keyed on the tag
-      # so a deliberate bump of CLI_TAG invalidates the cache by construction.
-      - name: Cache the pinned reference binary
+      # `npm install` of the pinned reference client; fetch it once per
+      # version. Keyed on the version so a deliberate bump of
+      # FORESTRIE_CLI_VERSION invalidates the cache by construction, and every
+      # run after the first is offline-safe.
+      - name: Cache the pinned reference client
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
-          path: node_modules/.cache/forestrie-cli
-          key: forestrie-cli-v0.7.0-${{ runner.os }}-${{ runner.arch }}
+          path: node_modules/.cache/forestrie-cli-npm
+          key: forestrie-cli-npm-0.8.0-${{ runner.os }}-${{ runner.arch }}
 
-      # Required here, so an unresolvable binary is a hard red rather than a
-      # cheerful green run that checked nothing. A separate job so a GitHub
-      # release outage is a distinguishable failure.
+      # Required here, so an unresolvable reference is a hard red rather than
+      # a cheerful green run that checked nothing. A separate job so a
+      # registry outage is a distinguishable failure.
       - name: Differential
         run: pnpm test:differential
         env:

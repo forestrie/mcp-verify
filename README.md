@@ -78,10 +78,10 @@ cannot distinguish, and the demo transcript:
 
 Which is why this repo goes to some trouble to make that re-running possible:
 
-- **A differential test** against the published, sha256-pinned `forestrie`
-  release binary. For every tamper variant under both signature roots, our `ok`,
-  `stage`, `reason` and `stages[]` must equal the reference's byte for byte.
-  Currently 18 tests, zero disagreements. See
+- **A differential test** against the published `@forestrie/forestrie-cli`
+  npm package, pinned at an exact version. For every tamper variant under both
+  signature roots, our `ok`, `stage`, `reason` and `stages[]` must equal the
+  reference's byte for byte. Currently 18 tests, zero disagreements. See
   [docs/differential-test.md](docs/differential-test.md).
 - **Frozen conformance vectors**, sha256-pinned to their manifest, shipped
   inside the tarball. See [fixtures/PROVENANCE.md](fixtures/PROVENANCE.md).
@@ -105,7 +105,7 @@ circular one. See [docs/self-registration.md](docs/self-registration.md).
 mise install           # node 22.14.0, pnpm 10.6.5
 pnpm install
 pnpm test              # browser-safe gate + encoding-copy gate + unit tests
-pnpm test:differential # needs the pinned forestrie CLI binary
+pnpm test:differential # npm-installs the pinned forestrie CLI version
 pnpm build
 ```
 

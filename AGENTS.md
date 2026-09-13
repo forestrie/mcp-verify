@@ -145,7 +145,7 @@ four silent "skipped" rows would **hide the failure**. Do not simplify it away.
 
 ```
 pnpm test              # check:browser-safe && check:encoding-single-copy && unit
-pnpm test:differential # needs the pinned forestrie CLI binary; see docs/
+pnpm test:differential # npm-installs the pinned forestrie CLI version; see docs/
 pnpm typecheck
 pnpm format:check
 pnpm build
