@@ -3,7 +3,7 @@
   "version": "0.3.0",
   "license": "MIT",
   "type": "module",
-  "description": "MCP verification server for Forestrie receipts \u2014 offline, no backend, no key, no network",
+  "description": "MCP verification server for Forestrie receipts — offline, no backend, no key, no network",
   "keywords": [
     "mcp",
     "modelcontextprotocol",
@@ -77,6 +77,7 @@
   },
   "dependencies": {
     "@forestrie/encoding": "0.7.0",
+    "@forestrie/forestrie-cli": "0.8.0",
     "@forestrie/merklelog": "0.3.0",
     "@forestrie/receipt-verify": "1.0.0",
     "@modelcontextprotocol/sdk": "1.30.0",

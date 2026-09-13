@@ -80,23 +80,27 @@ the golden vectors above, at `test/fixtures/self-bundle/` — read its
 `PROVENANCE.md`, not `fixtures/PROVENANCE.md`, before touching it. See
 [docs/self-registration.md](docs/self-registration.md).
 
-## `src/core/decode-receipt.ts` is a placeholder for a dependency
+## `src/core/decode-receipt.ts` re-exports from `@forestrie/forestrie-cli`
 
-It is written fresh over the published packages because `forestrie-cli` at
-v0.7.0 is `private: true` with no importable surface. `@forestrie/forestrie-cli@0.8.0`
-(prepared, **not yet on npm**) exposes the same thing at
-`@forestrie/forestrie-cli/decode-receipt`.
+`@forestrie/forestrie-cli@0.8.0` (plan-2609-02 workstream P step P5.5)
+publishes the receipt decoder/renderer at the runtime-neutral
+`@forestrie/forestrie-cli/decode-receipt` subpath — no `node:*`, no I/O, only
+`@forestrie/receipt-verify` and `@forestrie/encoding`. `src/core/decode-receipt.ts`
+is a thin re-export from that dependency, not an implementation; it used to be
+written fresh over the published packages because `forestrie-cli` at v0.7.0
+was `private: true` with no importable surface.
 
-**When that publishes, delete this file** and re-export from the dependency.
-The public surface is deliberately name- and shape-compatible so that is a
-one-line import change. The file's own header carries the checklist; the
-non-obvious step is re-running `check:encoding-single-copy` afterwards (the CLI
-pins `encoding ^0.7.0`, so it _should_ dedupe to our exact 0.7.0 — verify, do
-not assume).
+One known behavioural difference: the CLI's label registry does not (yet)
+carry two forestrie private-use codepoints (header label `-65801`, algorithm
+`-65800`); neither is exercised by any fixture here, so no test catches it.
+See the file's own header for detail.
 
 We do **not** vendor code from other repos into this tree. If something is
 worth depending on, depend on it; if it is not published, either write it here
-in the open or wait.
+in the open or wait. Re-running `check:encoding-single-copy` and
+`check:browser-safe` after any bump of this dependency is what proves the
+subpath still dedupes to our exact `encoding` pin and still bundles clean for
+`platform: "browser"` — verify on every bump, do not assume.
 
 ## Nothing writes to stdout in stdio mode except the transport
 
