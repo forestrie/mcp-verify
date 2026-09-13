@@ -16,26 +16,60 @@
  * label tables below are kept in sync with the authoritative registry:
  * [forestrie/protocol `spec/label-registry.md`](https://github.com/forestrie/protocol/blob/main/spec/label-registry.md).
  *
- * `@forestrie/forestrie-cli@0.8.0` publishes this same renderer at a pure
- * subpath export, `@forestrie/forestrie-cli/decode-receipt` — name- and
- * shape-compatible with the public surface below, so delegating to it was a
- * one-line import change (plan-2609-02 step P5.5). It was tried, and
- * reverted: the CLI's published label registry does not yet carry two
- * forestrie private-use codepoints real receipts use — COSE algorithm
- * `-65800` (`ALG_ES256_WEBAUTHN`) and header label `-65801` (the
- * session-key endorsement, `TBD2`) — so delegating silently turned their
- * `name` into `null`. Every gate that ran for that change stayed green
- * (`check:encoding-single-copy`, `check:browser-safe`, the differential
- * `decode_receipt` comparison, the existing unit tests below) because no
- * fixture in this repo's test suite exercises either codepoint —
- * `test/core/decode-receipt.test.ts` now asserts both label names directly
- * against the tables below so a future regression is caught by the gate,
- * not by review.
+ * `@forestrie/forestrie-cli` publishes this same renderer at a pure subpath
+ * export, `@forestrie/forestrie-cli/decode-receipt` — name- and
+ * shape-compatible with the public surface below, so delegating to it is a
+ * one-line import change (plan-2609-02 step P5.5). It has been tried twice
+ * and reverted twice, for two different reasons.
  *
- * **Revisit delegating once `forestrie-cli` ships `-65800` and `-65801` in
- * its published registry** — see `docs/dependency-surface.md` for the
- * checklist (encoding-single-copy, browser-safe, the two label-name tests,
+ * At `0.8.0` the CLI's registry did not carry two forestrie private-use
+ * codepoints real receipts use — COSE algorithm `-65800`
+ * (`ALG_ES256_WEBAUTHN`) and header label `-65801` (the session-key
+ * endorsement, `TBD2`) — so delegating silently turned their `name` into
+ * `null`. `0.8.1` fixed exactly that (forestrie-cli#54) and added header
+ * label `-65800` (the WebAuthn assertion envelope) and `-66535` (the
+ * on-chain delegation proof) besides. Those last two are not mirrored below
+ * — they name codepoints this table has never named, so adopting them is an
+ * output change on its own merits, to be made deliberately and not as a side
+ * effect of a dependency bump.
+ *
+ * It still does not match. `0.8.1` names those codepoints with **different
+ * text** to the tables below, and that text is rendered output, not
+ * commentary — `note` reaches `DecodedHeaderEntry.note`, and `ALG_NAMES`'
+ * value reaches the `alg.name` field:
+ *
+ *   - `ALG_NAMES[-65800]`: here `"ES256-WebAuthn (forestrie private-use)"`;
+ *     the CLI appends `"; delegation proofs and certificates only, never
+ *     checkpoint-signing"`.
+ *   - `HEADER_LABELS[-65801].note`: here `"forestrie private-use"`; the CLI
+ *     says `"forestrie TBD2: the endorsement COSE_Sign1, embedded as a bstr
+ *     (unprotected, leaf-admission-and-session-endorsement.md)"`. The `name`
+ *     agrees.
+ *
+ * Neither is wrong — the CLI's is arguably better — but adopting it changes
+ * what `decode_receipt` prints, which is a product decision and not a
+ * dependency bump. As before, no gate catches it on its own: no fixture here
+ * carries either codepoint, so `check:encoding-single-copy`,
+ * `check:browser-safe` and the differential comparison all stay green. The
+ * two tests in `test/core/decode-receipt.test.ts` assert these strings
+ * directly against the tables below, which is why the second attempt was
+ * caught by the gate rather than by review. **Do not loosen them to make a
+ * delegation pass** — that would ship the output change silently, which is
+ * the thing they exist to prevent.
+ *
+ * **Revisit delegating once the two tables agree textually.** The right fix
+ * is upstream of both: settle the wording in the registry
+ * ([forestrie/protocol `spec/label-registry.md`](https://github.com/forestrie/protocol/blob/main/spec/label-registry.md)),
+ * land it in `forestrie-cli`, then adopt the strings here in a change that
+ * says it is changing rendered output — after which this file becomes the
+ * re-export it was always meant to be. See `docs/dependency-surface.md` for
+ * the checklist (encoding-single-copy, browser-safe, the label-name tests,
  * the differential test).
+ *
+ * Note also what delegating costs: the differential test's decode row
+ * compares this renderer against the CLI's. Delegate, and both sides run the
+ * same code and the row stops being evidence. See
+ * `docs/differential-test.md`.
  *
  * ## One deliberate behavioural difference
  *

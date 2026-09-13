@@ -88,10 +88,11 @@ export type {
 /** CBOR → JSON. No verification. Mirrors `forestrie decode-receipt --json`.
  *
  *  This surface is deliberately name- and shape-compatible with
- *  `@forestrie/forestrie-cli@0.8.0`'s `/decode-receipt` subpath export, which
- *  is prepared but not yet on npm. When it publishes, src/core/decode-receipt.ts
- *  is deleted and these re-export from the dependency instead — see that file's
- *  header for the checklist (the encoding-single-copy gate must still pass). */
+ *  `@forestrie/forestrie-cli`'s `/decode-receipt` subpath export, so
+ *  src/core/decode-receipt.ts could become a re-export from the dependency.
+ *  That was tried against 0.8.0 and 0.8.1 and reverted both times — the two
+ *  label tables still disagree textually, and that text is rendered output.
+ *  See that file's header for the exact strings and the checklist. */
 export {
   ALG_NAMES,
   COSE_KEY_PARAM_NAMES,

@@ -20,7 +20,7 @@ workstream P step P5 — no longer a downloaded binary either.
 
 |                                         |                                  |
 | --------------------------------------- | -------------------------------- |
-| Pinned version                          | `@forestrie/forestrie-cli@0.8.0` |
+| Pinned version                          | `@forestrie/forestrie-cli@0.8.1` |
 | `@forestrie/receipt-verify` it resolves | `1.0.0` — same as this package   |
 | `@forestrie/encoding` it resolves       | `0.7.0` — same as this package   |
 
@@ -60,7 +60,7 @@ into a hard failure. Locally you get a clean skip with a one-line reason.
 2. It removes Bun from this repo entirely, CI included. The toolchain is mise
    node + pnpm and nothing else, and "does the toolchain contain Bun" has a
    one-word answer.
-3. `@forestrie/forestrie-cli@0.8.0` resolves the same `@forestrie/receipt-verify`
+3. `@forestrie/forestrie-cli@0.8.1` resolves the same `@forestrie/receipt-verify`
    (1.0.0) and `@forestrie/encoding` (0.7.0) as this package — the version-skew
    this file used to carry as a triage category is gone, not merely pinned
    around.
@@ -97,7 +97,7 @@ documents**.
 
 ### Current status
 
-Last run 2026-09-13 on darwin-arm64 against `@forestrie/forestrie-cli@0.8.0`
+Last run 2026-09-13 on darwin-arm64 against `@forestrie/forestrie-cli@0.8.1`
 from npm: **18 tests, zero disagreements.**
 
 That includes the decode comparison, which is worth dwelling on, because
@@ -106,6 +106,14 @@ packages rather than a copy of the CLI's source. It was written to a documented
 subset and turned out to reproduce the reference output exactly — nested CBOR
 rendering of header 396 included. The assertion started as a subset match and
 was strengthened to a deep-equal only once the runtime showed it held.
+
+That independence is the reason this comparison is worth running at all. It
+was very nearly given up: delegating `decode_receipt` to the CLI's published
+`/decode-receipt` subpath was tried twice and reverted twice (see
+[dependency-surface.md](dependency-surface.md)), and had it landed, both sides
+of this row would be the same code and the row would assert nothing. Two
+implementations that agree is evidence; one implementation compared with
+itself is not.
 
 ## The two accumulator roots deliberately outside the matrix
 
@@ -148,7 +156,7 @@ the reference to fail cleanly.
 | **CLI bug** | Pin the expectation here with a comment naming the bug and linking the issue, and file it. |
 
 The version-skew row this table used to carry (`receipt-verify` 0.9.0 vs
-1.0.0) is retired: `@forestrie/forestrie-cli@0.8.0` resolves the same
+1.0.0) is retired: `@forestrie/forestrie-cli@0.8.1` resolves the same
 `@forestrie/receipt-verify` (1.0.0) and `@forestrie/encoding` (0.7.0) as this
 package, so that category of disagreement no longer applies. If a future CLI
 release reintroduces a skew, add the row back with the two versions named.
@@ -164,9 +172,11 @@ more:
 
 1. `npm view @forestrie/forestrie-cli versions --json` — confirm the new
    version is actually published.
-2. Edit `FORESTRIE_CLI_VERSION` in `test/differential/cli-binary.ts`. The
-   install cache is keyed on this constant, so the bump gets a fresh `npm
-install` by construction; nothing to delete by hand.
+2. Edit `FORESTRIE_CLI_VERSION` in `scripts/forestrie-cli-npm.mjs` — the
+   single home of the pin, shared by the differential harness and
+   `scripts/self-register.mjs`. The install cache is keyed on this constant,
+   so the bump gets a fresh `npm install` by construction; nothing to delete
+   by hand.
 3. Update the `key:` of the cache step in `.github/workflows/ci.yml` if it
    names the version (it does — that is what invalidates CI's cache on a
    bump).
@@ -174,6 +184,17 @@ install` by construction; nothing to delete by hand.
 5. Run `pnpm test:differential`. Triage every new disagreement per the table
    above **before** merging. A rebase that turns cells red and gets merged
    with the assertions relaxed is worse than not rebasing.
+
+A pin bump also moves the CLI's **label tables**, which are the reference
+counterpart of the ones `src/core/decode-receipt.ts` renders from. The decode
+row compares rendered output, so a label the CLI names differently only turns
+this test red if a fixture carries that codepoint — and for the forestrie
+private-use codepoints, none here does. So on a bump, diff the two tables by
+hand as well as running the suite; `0.8.1` moved three of them without any
+test noticing. Both sides should track the same authority,
+[forestrie/protocol `spec/label-registry.md`](https://github.com/forestrie/protocol/blob/main/spec/label-registry.md),
+and a divergence is a question for that registry, not something to paper over
+on either side.
 
 Bump deliberately. The pin is the point: it is what makes "agrees with the
 reference" a statement about a specific, published, exact-version artefact
