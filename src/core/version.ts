@@ -11,7 +11,7 @@
  */
 
 /** Keep in sync with package.json#version. Asserted by test/node/mcp-smoke. */
-export const PACKAGE_VERSION = "0.3.0";
+export const PACKAGE_VERSION = "0.4.0";
 
 /** Keep in sync with package.json#dependencies["@forestrie/receipt-verify"].
  *  Asserted by test/core/verify-grant-receipt.test.ts. */
