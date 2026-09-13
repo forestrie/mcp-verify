@@ -8,46 +8,34 @@
  * opaque signed bstr it must be. This module turns that result into a display
  * model: protected-header contents, named labels, JSON-safe values.
  *
- * ## DELETE THIS FILE when @forestrie/forestrie-cli@0.8.0 lands on npm
+ * ## This stays a local renderer — delegating to a dependency was tried and reverted
  *
- * This is a placeholder for a dependency that does not exist yet.
- *
- * `forestrie-cli` has this renderer already, but at v0.7.0 it is
- * `private: true` and ships only as compiled binaries, so there was nothing
- * to depend on — and copying 667 lines of someone else's source into this
- * tree would have bought differential exactness at the price of a silent
- * fork. So this is written fresh over the published packages only:
  * `parseReceipt` from `@forestrie/receipt-verify`, and
  * `decodeCborDeterministic` / `coseUnprotectedToMap` / `decodeCoseSign1` /
- * `CborTag` from `@forestrie/encoding@0.7.0`.
+ * `CborTag` from `@forestrie/encoding@0.7.0`, are the only dependencies. The
+ * label tables below are kept in sync with the authoritative registry:
+ * [forestrie/protocol `spec/label-registry.md`](https://github.com/forestrie/protocol/blob/main/spec/label-registry.md).
  *
- * **That is changing.** `@forestrie/forestrie-cli@0.8.0` (prepared on the
- * `publish-npm` branch, NOT yet published) makes the CLI a public,
- * Node-runnable npm package with a pure subpath export
- * `@forestrie/forestrie-cli/decode-receipt`, exposing `decodeReceipt`,
- * `renderReceipt`, `DecodeReceiptError`, `toJson`, `bytesToHex`, the label
- * tables and the same `DecodedReceipt` type. It imports only
- * `@forestrie/receipt-verify` and `@forestrie/encoding`.
+ * `@forestrie/forestrie-cli@0.8.0` publishes this same renderer at a pure
+ * subpath export, `@forestrie/forestrie-cli/decode-receipt` — name- and
+ * shape-compatible with the public surface below, so delegating to it was a
+ * one-line import change (plan-2609-02 step P5.5). It was tried, and
+ * reverted: the CLI's published label registry does not yet carry two
+ * forestrie private-use codepoints real receipts use — COSE algorithm
+ * `-65800` (`ALG_ES256_WEBAUTHN`) and header label `-65801` (the
+ * session-key endorsement, `TBD2`) — so delegating silently turned their
+ * `name` into `null`. Every gate that ran for that change stayed green
+ * (`check:encoding-single-copy`, `check:browser-safe`, the differential
+ * `decode_receipt` comparison, the existing unit tests below) because no
+ * fixture in this repo's test suite exercises either codepoint —
+ * `test/core/decode-receipt.test.ts` now asserts both label names directly
+ * against the tables below so a future regression is caught by the gate,
+ * not by review.
  *
- * When that version is on npm:
- *
- *   1. `pnpm add @forestrie/forestrie-cli@0.8.0` (exact).
- *   2. Delete this file and re-export from the dependency instead:
- *      `export { decodeReceipt, ... } from "@forestrie/forestrie-cli/decode-receipt";`
- *   3. Re-run `pnpm run check:encoding-single-copy`. The CLI pins
- *      `@forestrie/encoding ^0.7.0`, so it SHOULD dedupe to our exact 0.7.0
- *      and the gate should stay green — but that is the thing to verify
- *      before merging, not to assume. A second wire-type codec is two
- *      answers about the same bytes.
- *   4. Re-run `pnpm run check:browser-safe`. The subpath is documented as
- *      runtime-neutral; this gate is what proves it for OUR graph.
- *   5. Keep the differential test. It is what would catch the swap changing
- *      behaviour.
- *
- * The public surface below is deliberately named and shaped to match that
- * subpath export, so step 2 really is a one-line import change. The one
- * KNOWN behavioural difference is under "One deliberate behavioural
- * difference" below, and it disappears with the swap.
+ * **Revisit delegating once `forestrie-cli` ships `-65800` and `-65801` in
+ * its published registry** — see `docs/dependency-surface.md` for the
+ * checklist (encoding-single-copy, browser-safe, the two label-name tests,
+ * the differential test).
  *
  * ## One deliberate behavioural difference
  *

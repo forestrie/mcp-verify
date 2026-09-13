@@ -92,19 +92,38 @@ asserts as a full deep-equal on two different receipts. That was not assumed;
 the assertion started as a subset match and was strengthened once the runtime
 showed it held.
 
-### That file is a placeholder, and should be deleted
+### Delegating to `@forestrie/forestrie-cli` — tried, reverted (plan-2609-02 step P5.5)
 
-`@forestrie/forestrie-cli@0.8.0` (prepared on the `publish-npm` branch, **not
-yet on npm**) makes the CLI a public, Node-runnable package with a pure subpath
-export `@forestrie/forestrie-cli/decode-receipt`, exposing `decodeReceipt`,
-`renderReceipt`, `DecodeReceiptError`, `toJson`, `bytesToHex`, the label tables
-and the same `DecodedReceipt` type. It imports only `@forestrie/receipt-verify`
-and `@forestrie/encoding`.
+`@forestrie/forestrie-cli@0.8.0` published to npm 2026-09-12, making the CLI a
+public, Node-runnable package with a pure subpath export
+`@forestrie/forestrie-cli/decode-receipt`, exposing `decodeReceipt`,
+`renderReceipt`, `DecodeReceiptError`, `toJson`, `bytesToHex`, the label
+tables and the same `DecodedReceipt` type. It imports only
+`@forestrie/receipt-verify` and `@forestrie/encoding`.
 
-Our public surface is deliberately name- and shape-compatible with it. When it
-publishes:
+The swap was made and then reverted: both purity gates
+(`check:encoding-single-copy`, `check:browser-safe`) stayed green, and the
+existing decode-receipt tests and the differential `decode_receipt`
+comparison all still passed — but none of them could see that the CLI's
+published label registry does not yet carry two forestrie private-use
+codepoints real receipts use: COSE algorithm `-65800`
+(`ALG_ES256_WEBAUTHN`) and header label `-65801` (the session-key
+endorsement, `TBD2`). Delegating silently turned their `name` into `null`.
+No fixture in this repo's test suite (golden, burial or self-bundle)
+exercises either codepoint, so the gap was invisible to every gate that ran.
+`src/core/decode-receipt.ts` therefore stays a local renderer, kept in sync
+with the authoritative registry —
+[forestrie/protocol `spec/label-registry.md`](https://github.com/forestrie/protocol/blob/main/spec/label-registry.md)
+— rather than the dependency, until the dependency ships those two labels.
+`test/core/decode-receipt.test.ts` now asserts both label names directly
+against the local tables so this regression is caught by the gate next time,
+not by review.
 
-1. `pnpm add @forestrie/forestrie-cli@0.8.0` (exact pin, like the others).
+**Revisit when `forestrie-cli` ships `-65800` / `-65801` in its published
+label registry:**
+
+1. `pnpm add @forestrie/forestrie-cli@<version>` (exact pin, like the
+   others).
 2. Delete `src/core/decode-receipt.ts` and re-export from the dependency:
    `export { decodeReceipt, ... } from "@forestrie/forestrie-cli/decode-receipt";`
 3. **Re-run `pnpm run check:encoding-single-copy`.** The CLI pins
@@ -114,8 +133,12 @@ publishes:
    response to a red gate is to fix the pin, never to add an override.
 4. Re-run `pnpm run check:browser-safe`. The subpath is documented as
    runtime-neutral; that gate is what proves it for _our_ module graph.
-5. Keep the differential test — it is what would catch the swap changing
-   behaviour.
+5. Re-run the two label-name unit tests in `test/core/decode-receipt.test.ts`
+   against the dependency's exports; if they still pass, delete this file's
+   copy of `-65800`/`-65801`'s reason for existing along with the rest of the
+   implementation.
+6. Keep the differential test — it is what would catch the swap changing
+   behaviour for everything else.
 
 Also confirmed present at 0.7.0 and used by the decoder: `decodeCborDeterministic`,
 `CborTag`, `decodeCoseSign1`, `coseUnprotectedToMap`, `encodeGrantPayloadV0Canonical`,

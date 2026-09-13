@@ -93,6 +93,12 @@ Which is why this repo goes to some trouble to make that re-running possible:
 
 The verification itself is `@forestrie/receipt-verify@1.0.0`, which is
 published, MIT, and SLSA-attested independently of this package.
+`decode_receipt`'s rendering stays a local implementation — over the same
+published packages, against the same public
+[label registry](https://github.com/forestrie/protocol/blob/main/spec/label-registry.md) —
+rather than a dependency on `@forestrie/forestrie-cli`, until that package's
+own published decoder carries the full registry too. See
+[docs/dependency-surface.md](docs/dependency-surface.md).
 
 At release time, this package also registers its own provenance in a
 Forestrie log and ships the receipt inside the tarball — two independent
