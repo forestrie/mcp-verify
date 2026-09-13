@@ -44,6 +44,25 @@ name: Publish
 #   the same thing as the script's own `--dry-run` flag (local stubs, no
 #   network at all), which is the separate offline gate `pnpm test`-adjacent
 #   tooling exercises.
+#
+# plan-2609-02 step 3.3 — registry listing:
+# - After a successful `npm publish`, `mcp-publisher publish` lists
+#   dev.forestrie/verify (server.json) with the official MCP registry
+#   (registry.modelcontextprotocol.io). This is additive to the npm publish
+#   above, not a replacement for it: npm is still the distribution channel,
+#   this only makes the listing discoverable.
+# - `mcp-publisher` is downloaded from a GitHub Release (not installed via a
+#   package manager) and sha256-verified against a value pinned in this
+#   workflow, computed by hand from the v1.8.1 release asset and recorded in
+#   the PR that added this block.
+# - DNS ownership (`login dns --domain forestrie.dev`) requires the apex TXT
+#   record on forestrie.dev to already exist (plan-2609-02 step 3.2) and the
+#   MCP_PUBLISHER_DNS_PRIVATE_KEY secret to be set in the npm-publish
+#   environment — both are one-time, owner-side setup; login fails closed
+#   until then.
+# - Guarded by `if: ${{ !inputs.rehearsal }}`, exactly like the npm Publish
+#   step above: a rehearsal proves registration and packaging without
+#   shipping anything anywhere, npm or the MCP registry alike.
 
 on:
   workflow_dispatch:
@@ -114,8 +133,11 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Test
-        # Chains check:browser-safe && check:encoding-single-copy before
-        # vitest. This is what makes both purity gates release gates.
+        # Chains check:browser-safe && check:encoding-single-copy &&
+        # check:server-json before vitest. This is what makes all three
+        # gates release gates, not advisory — plan-2609-02 step 3.3 added
+        # check:server-json so a version bump can never leave server.json
+        # behind.
         run: pnpm test
 
       - name: Build
@@ -150,3 +172,52 @@ jobs:
         # silent regression is impossible.
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.rehearsal) }}
         run: npm publish --provenance ./forestrie-mcp-verify-*.tgz
+
+      # plan-2609-02 step 3.3 — list dev.forestrie/verify with the official
+      # MCP registry, after the npm publish it depends on (ownership
+      # verification reads package.json#mcpName from the just-published
+      # tarball). Same guard as the npm Publish step above: a rehearsal
+      # never lists anything, npm or the MCP registry alike.
+      - name: Download mcp-publisher
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.rehearsal) }}
+        # Downloaded from the GitHub Release directly, not a package
+        # manager — Homebrew is not available on ubuntu-latest runners
+        # without an extra install step, and pinning a release asset is
+        # the same discipline as the SHA-pinned actions elsewhere in this
+        # workflow. sha256 verified in the next step against a value
+        # computed by hand and pinned here (see the PR that added this
+        # block for how).
+        run: |
+          set -euo pipefail
+          curl -sSfL -o mcp-publisher.tar.gz \
+            https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/mcp-publisher_linux_amd64.tar.gz
+
+      - name: Verify mcp-publisher checksum
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.rehearsal) }}
+        run: |
+          set -euo pipefail
+          echo "a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc  mcp-publisher.tar.gz" | shasum -a 256 -c -
+
+      - name: Extract mcp-publisher
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.rehearsal) }}
+        run: |
+          set -euo pipefail
+          tar -xzf mcp-publisher.tar.gz mcp-publisher
+          chmod +x ./mcp-publisher
+
+      - name: mcp-publisher login (DNS)
+        # Requires the apex TXT record on forestrie.dev (plan-2609-02 step
+        # 3.2, owner + O) and the MCP_PUBLISHER_DNS_PRIVATE_KEY secret in the
+        # npm-publish environment (owner to create; does not exist yet as of
+        # this PR). Fails closed until both exist.
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.rehearsal) }}
+        run: ./mcp-publisher login dns --domain forestrie.dev --private-key "$MCP_PUBLISHER_DNS_PRIVATE_KEY"
+        env:
+          MCP_PUBLISHER_DNS_PRIVATE_KEY: ${{ secrets.MCP_PUBLISHER_DNS_PRIVATE_KEY }}
+
+      - name: mcp-publisher publish
+        # Validates server.json against the schema, then publishes it to
+        # registry.modelcontextprotocol.io. Ownership verification reads
+        # package.json#mcpName from the npm package just published above.
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.rehearsal) }}
+        run: ./mcp-publisher publish

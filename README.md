@@ -105,12 +105,17 @@ Forestrie log and ships the receipt inside the tarball — two independent
 trust roots, npm's SLSA provenance and a Forestrie receipt, rather than one
 circular one. See [docs/self-registration.md](docs/self-registration.md).
 
+## Registry
+
+Once phase 3 lands, this server is listed as `dev.forestrie/verify` in the
+[official MCP registry](https://registry.modelcontextprotocol.io).
+
 ## Development
 
 ```
 mise install           # node 22.14.0, pnpm 10.6.5
 pnpm install
-pnpm test              # browser-safe gate + encoding-copy gate + unit tests
+pnpm test              # browser-safe gate + encoding-copy gate + server.json gate + unit tests
 pnpm test:differential # npm-installs the pinned forestrie CLI version
 pnpm build
 ```
