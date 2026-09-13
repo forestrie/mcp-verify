@@ -99,7 +99,7 @@ jobs:
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: node_modules/.cache/forestrie-cli-npm
-          key: forestrie-cli-npm-0.8.0-${{ runner.os }}-${{ runner.arch }}
+          key: forestrie-cli-npm-0.8.1-${{ runner.os }}-${{ runner.arch }}
 
       # Required here, so an unresolvable reference is a hard red rather than
       # a cheerful green run that checked nothing. A separate job so a

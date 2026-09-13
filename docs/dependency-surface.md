@@ -92,39 +92,71 @@ asserts as a full deep-equal on two different receipts. That was not assumed;
 the assertion started as a subset match and was strengthened once the runtime
 showed it held.
 
-### Delegating to `@forestrie/forestrie-cli` — tried, reverted (plan-2609-02 step P5.5)
+### Delegating to `@forestrie/forestrie-cli` — tried twice, reverted twice (plan-2609-02 step P5.5)
 
-`@forestrie/forestrie-cli@0.8.0` published to npm 2026-09-12, making the CLI a
+`@forestrie/forestrie-cli` published to npm from `0.8.0`, making the CLI a
 public, Node-runnable package with a pure subpath export
 `@forestrie/forestrie-cli/decode-receipt`, exposing `decodeReceipt`,
 `renderReceipt`, `DecodeReceiptError`, `toJson`, `bytesToHex`, the label
 tables and the same `DecodedReceipt` type. It imports only
-`@forestrie/receipt-verify` and `@forestrie/encoding`.
+`@forestrie/receipt-verify` and `@forestrie/encoding`. Both purity gates
+tolerate it: with the dependency installed, `@forestrie/encoding` still
+dedupes to exactly one copy at `0.7.0`, and `src/core` still bundles clean
+for `platform: "browser"`. Neither attempt failed on a gate in `AGENTS.md`'s
+sense. Both failed on rendered output.
 
-The swap was made and then reverted: both purity gates
-(`check:encoding-single-copy`, `check:browser-safe`) stayed green, and the
-existing decode-receipt tests and the differential `decode_receipt`
-comparison all still passed — but none of them could see that the CLI's
-published label registry does not yet carry two forestrie private-use
-codepoints real receipts use: COSE algorithm `-65800`
-(`ALG_ES256_WEBAUTHN`) and header label `-65801` (the session-key
+**Attempt 1, against `0.8.0`.** The CLI's published label registry did not
+carry two forestrie private-use codepoints real receipts use: COSE algorithm
+`-65800` (`ALG_ES256_WEBAUTHN`) and header label `-65801` (the session-key
 endorsement, `TBD2`). Delegating silently turned their `name` into `null`.
-No fixture in this repo's test suite (golden, burial or self-bundle)
-exercises either codepoint, so the gap was invisible to every gate that ran.
-`src/core/decode-receipt.ts` therefore stays a local renderer, kept in sync
-with the authoritative registry —
+No fixture in this repo's suite (golden, burial or self-bundle) exercises
+either codepoint, so the existing tests and the differential comparison all
+stayed green and the regression was caught by review, not by a gate. Two
+fixture-free tests were added at the foot of
+`test/core/decode-receipt.test.ts` asserting the strings directly against the
+tables, so that next time it would be the gate.
+
+**Attempt 2, against `0.8.1`.** forestrie-cli#54 added `-65800` and `-65801`
+— plus header label `-65800` (WebAuthn assertion envelope) and `-66535`
+(on-chain delegation proof) — from the public registry. The two tests caught
+it anyway, exactly as intended, because the CLI names those codepoints with
+**different text**:
+
+|                              | here                                     | `@forestrie/forestrie-cli@0.8.1`                                                                                          |
+| ---------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `ALG_NAMES[-65800]`          | `ES256-WebAuthn (forestrie private-use)` | `ES256-WebAuthn (forestrie private-use; delegation proofs and certificates only, never checkpoint-signing)`               |
+| `HEADER_LABELS[-65801].note` | `forestrie private-use`                  | `forestrie TBD2: the endorsement COSE_Sign1, embedded as a bstr (unprotected, leaf-admission-and-session-endorsement.md)` |
+
+(`HEADER_LABELS[-65801].name` agrees: `session key endorsement`.)
+
+Both strings are rendered output, not commentary — `note` reaches
+`DecodedHeaderEntry.note` and the `ALG_NAMES` value reaches the `alg.name`
+field. Neither wording is wrong, and the CLI's is arguably more useful. But
+adopting it changes what `decode_receipt` prints, and that is a product
+decision taken deliberately, not a side effect of adding a dependency. The
+tests were **not** loosened to let the swap through; loosening them would
+have shipped the output change silently, which is the one thing they exist
+to prevent.
+
+`src/core/decode-receipt.ts` therefore stays a local renderer, tracking the
+authoritative registry —
 [forestrie/protocol `spec/label-registry.md`](https://github.com/forestrie/protocol/blob/main/spec/label-registry.md)
-— rather than the dependency, until the dependency ships those two labels.
-`test/core/decode-receipt.test.ts` now asserts both label names directly
-against the local tables so this regression is caught by the gate next time,
-not by review.
+— rather than the dependency.
 
-**Revisit when `forestrie-cli` ships `-65800` / `-65801` in its published
-label registry:**
+There is a consolation, and it is not small: because the two implementations
+are independent, the differential test's `decode_receipt` row is real
+evidence. Delegate, and both sides of that comparison run the same code and
+the row asserts nothing. See [differential-test.md](differential-test.md).
 
-1. `pnpm add @forestrie/forestrie-cli@<version>` (exact pin, like the
+**Revisit when the two tables agree textually.** The fix belongs upstream of
+both: settle the wording in the registry, land it in `forestrie-cli`, then
+adopt it here in a change whose subject says it is changing rendered output.
+Then:
+
+1. `pnpm add -E @forestrie/forestrie-cli@<version>` (exact pin, like the
    others).
-2. Delete `src/core/decode-receipt.ts` and re-export from the dependency:
+2. Delete `src/core/decode-receipt.ts`'s implementation and re-export from
+   the dependency:
    `export { decodeReceipt, ... } from "@forestrie/forestrie-cli/decode-receipt";`
 3. **Re-run `pnpm run check:encoding-single-copy`.** The CLI pins
    `@forestrie/encoding ^0.7.0`, so it _should_ dedupe to our exact `0.7.0` and
@@ -134,11 +166,11 @@ label registry:**
 4. Re-run `pnpm run check:browser-safe`. The subpath is documented as
    runtime-neutral; that gate is what proves it for _our_ module graph.
 5. Re-run the two label-name unit tests in `test/core/decode-receipt.test.ts`
-   against the dependency's exports; if they still pass, delete this file's
-   copy of `-65800`/`-65801`'s reason for existing along with the rest of the
-   implementation.
-6. Keep the differential test — it is what would catch the swap changing
-   behaviour for everything else.
+   against the dependency's exports. If they pass unchanged, the tables agree
+   and the swap is safe. If they fail, the swap is an output change again —
+   stop, and say so, rather than editing the expectation.
+6. Keep the differential test, and accept that it weakens to a self-comparison
+   for the decode row.
 
 Also confirmed present at 0.7.0 and used by the decoder: `decodeCborDeterministic`,
 `CborTag`, `decodeCoseSign1`, `coseUnprotectedToMap`, `encodeGrantPayloadV0Canonical`,

@@ -96,9 +96,14 @@ published, MIT, and SLSA-attested independently of this package.
 `decode_receipt`'s rendering stays a local implementation — over the same
 published packages, against the same public
 [label registry](https://github.com/forestrie/protocol/blob/main/spec/label-registry.md) —
-rather than a dependency on `@forestrie/forestrie-cli`, until that package's
-own published decoder carries the full registry too. See
-[docs/dependency-surface.md](docs/dependency-surface.md).
+rather than a dependency on `@forestrie/forestrie-cli`, whose published
+decoder is otherwise a drop-in. Delegating to it has been tried twice and
+reverted twice: the two label tables still name some codepoints with
+different text, and that text is output the tool prints, so adopting it is a
+deliberate change to what you see rather than a dependency bump. The
+consolation is that it keeps the differential test's decode comparison
+honest — two independent renderers that agree, rather than one compared with
+itself. See [docs/dependency-surface.md](docs/dependency-surface.md).
 
 At release time, this package also registers its own provenance in a
 Forestrie log and ships the receipt inside the tarball — two independent

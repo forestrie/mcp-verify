@@ -114,16 +114,34 @@ describe("decodeReceipt — failures name the stage that rejected the input", ()
 
 /**
  * Regression guard for plan-2609-02 step P5.5: delegating decode_receipt's
- * rendering to `@forestrie/forestrie-cli`'s published decoder was tried and
- * reverted because its label registry does not yet carry these two
- * forestrie private-use codepoints, which real receipts use — a signer
- * legitimately using WebAuthn delegation, or a session-key endorsement,
- * would have had their header entry's `name` silently turn into `null`. No
- * fixture in this repo's suite carries either codepoint (golden, burial and
- * self-bundle all predate WebAuthn delegation and session-key endorsement),
- * so this asserts directly against the label tables `decodeReceipt` renders
- * from — no receipt needed — rather than relying on a fixture that does not
- * exist here. Authoritative source:
+ * rendering to `@forestrie/forestrie-cli`'s published decoder was tried
+ * twice and reverted twice.
+ *
+ * Against `0.8.0` the CLI's label registry did not carry these two forestrie
+ * private-use codepoints at all, so a signer legitimately using WebAuthn
+ * delegation, or a session-key endorsement, would have had their entry's
+ * `name` silently turn into `null`. These two tests were written then, to
+ * make that a red gate rather than a review catch.
+ *
+ * Against `0.8.1` — which added both codepoints (forestrie-cli#54) — they
+ * went red anyway, and correctly: the CLI names them with different text
+ * (`ALG_NAMES[-65800]` gains a "delegation proofs and certificates only"
+ * clause; `HEADER_LABELS[-65801].note` becomes a "forestrie TBD2: …"
+ * sentence, though its `name` agrees). Both strings are rendered output —
+ * `note` reaches `DecodedHeaderEntry.note`, the alg string reaches
+ * `alg.name` — so adopting them is a change to what the tool prints.
+ *
+ * **Do not loosen these to make a delegation pass.** If they go red under a
+ * future CLI version, that is the signal working: the two tables disagree
+ * about rendered output, and the fix is to settle the wording in the
+ * registry and adopt it deliberately, not to weaken the expectation here.
+ *
+ * No fixture in this repo's suite carries either codepoint (golden, burial
+ * and self-bundle all predate WebAuthn delegation and session-key
+ * endorsement), which is exactly why these assert against the label tables
+ * `decodeReceipt` renders from rather than through a receipt.
+ *
+ * Authoritative source:
  * https://github.com/forestrie/protocol/blob/main/spec/label-registry.md
  */
 describe("decodeReceipt's label registry — codepoints without a golden fixture", () => {

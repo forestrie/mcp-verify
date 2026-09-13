@@ -47,7 +47,7 @@ name: Publish
 #   network at all), which is the separate offline gate `pnpm test`-adjacent
 #   tooling exercises.
 # - The CLI itself is resolved from npm (`npm install --no-save
-#   @forestrie/forestrie-cli@0.8.0`, run via `node`), not a downloaded
+#   @forestrie/forestrie-cli@0.8.1`, run via `node`), not a downloaded
 #   binary — this workflow no longer fetches or sha256-verifies a
 #   forestrie-cli release asset for this step.
 # - Delegate-before-register (found 2026-09-13): a receipt needs the
@@ -168,7 +168,7 @@ jobs:
         # --timeout 300 --json` and waits for the receipt, fetches the
         # forest's kept-copy genesis, and writes fixtures/self/ (bundle +
         # manifest.json). The CLI itself is resolved from npm
-        # (@forestrie/forestrie-cli@0.8.0), not downloaded. Runs for real on
+        # (@forestrie/forestrie-cli@0.8.1), not downloaded. Runs for real on
         # a tag push AND on a `rehearsal` dispatch alike; only the Publish
         # step below is conditioned on `rehearsal`. Non-zero exit here stops
         # the release before Pack and Publish.

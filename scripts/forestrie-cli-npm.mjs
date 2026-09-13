@@ -21,7 +21,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 /** Bump deliberately; see docs/differential-test.md. */
-export const FORESTRIE_CLI_VERSION = "0.8.0";
+export const FORESTRIE_CLI_VERSION = "0.8.1";
 
 /** The version-keyed scratch install root under `repoRoot`. */
 export function cliCacheDir(repoRoot, version = FORESTRIE_CLI_VERSION) {

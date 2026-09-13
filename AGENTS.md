@@ -86,24 +86,37 @@ It is written fresh over the published packages — `parseReceipt` from
 `@forestrie/receipt-verify`, `decodeCborDeterministic` /
 `coseUnprotectedToMap` / `decodeCoseSign1` / `CborTag` from
 `@forestrie/encoding` — rather than delegating to
-`@forestrie/forestrie-cli@0.8.0`'s published `/decode-receipt` subpath,
-which is otherwise name- and shape-compatible. **Tried and reverted**
-(plan-2609-02 step P5.5): the CLI's published label registry does not yet
-carry two forestrie private-use codepoints real receipts use — COSE
-algorithm `-65800` (`ALG_ES256_WEBAUTHN`) and header label `-65801` (the
-session-key endorsement, `TBD2`) — so delegating silently turned their
-`name` into `null` in `decode_receipt`'s output. No gate that ran for that
-change could see the regression, because no fixture in this repo exercises
-either codepoint. This file's own label tables are kept in sync with the
+`@forestrie/forestrie-cli`'s published `/decode-receipt` subpath, which is
+otherwise name- and shape-compatible. **Tried and reverted twice**
+(plan-2609-02 step P5.5), for two different reasons.
+
+At `0.8.0` the CLI's registry did not carry two forestrie private-use
+codepoints real receipts use — COSE algorithm `-65800`
+(`ALG_ES256_WEBAUTHN`) and header label `-65801` (the session-key
+endorsement, `TBD2`) — so delegating silently turned their `name` into
+`null`. `0.8.1` (forestrie-cli#54) fixed that, and delegating was tried
+again. It still does not match: `0.8.1` names those codepoints with
+**different text**, and that text is rendered output — `note` reaches
+`DecodedHeaderEntry.note` and the `ALG_NAMES` value reaches `alg.name`. So
+adopting it changes what `decode_receipt` prints, which is a product
+decision, not a dependency bump. The file's own header records the exact
+strings on both sides.
+
+No gate catches either regression on its own, because no fixture in this
+repo exercises those codepoints. That is what the two tests at the foot of
+`test/core/decode-receipt.test.ts` are for: they assert the strings directly
+against the tables, with no receipt involved. **Do not loosen them to make a
+delegation pass** — that ships the output change silently, which is the one
+thing they exist to prevent. This file's own label tables track the
 authoritative registry:
 [forestrie/protocol `spec/label-registry.md`](https://github.com/forestrie/protocol/blob/main/spec/label-registry.md).
 
-**Revisit delegating to the dependency once it ships those two labels** —
-re-run `check:encoding-single-copy` and `check:browser-safe` afterward (the
-CLI pins `encoding ^0.7.0`, so it _should_ dedupe to our exact 0.7.0 — verify,
-do not assume), and add fixture-free unit tests asserting the two label
-names render correctly first, so a future regression here is caught by the
-gate rather than by review.
+**Revisit delegating once the two tables agree textually** — the fix belongs
+upstream of both, in that registry, then in `forestrie-cli`, then here as a
+change that says it is changing rendered output. On that day, re-run
+`check:encoding-single-copy` and `check:browser-safe` (the CLI pins
+`encoding ^0.7.0`, so it _should_ dedupe to our exact 0.7.0 — verify, do not
+assume), and keep the label tests.
 
 We do **not** vendor code from other repos into this tree. This file is not
 vendoring `forestrie-cli`'s source — it is an independent implementation
@@ -252,7 +265,7 @@ publish`. See `docs/self-registration.md`'s "Delegate before register"
   alongside them there too.
 
 As of this change, the "Register provenance" step no longer downloads a
-`forestrie` CLI binary — it resolves `@forestrie/forestrie-cli@0.8.0` from
+`forestrie` CLI binary — it resolves `@forestrie/forestrie-cli@0.8.1` from
 npm, the same mechanism `test/differential/cli-binary.ts` uses.
 
 ## Links must resolve without org access
