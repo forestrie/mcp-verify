@@ -1,87 +1,115 @@
 /**
- * The reference client, pinned by checksum.
+ * The reference client, pinned by npm version.
  *
- * `forestrie-cli` is `private: true` on npm and ships as compiled static
- * binaries on GitHub Releases, each with a `.sha256` sidecar. So the
- * differential test consumes a PUBLISHED RELEASE BINARY rather than a source
- * checkout, which is a deliberate deviation from the parent plan's wording
- * ("run via Bun in CI"):
+ * `@forestrie/forestrie-cli` publishes to npm from 0.8.0 (plan-2609-02
+ * workstream P, step P5), Node-runnable with `bin: { forestrie: "dist/cli.js" }`.
+ * That replaces the earlier sha256-pinned GitHub-release binary this file
+ * used to resolve:
  *
- * 1. It removes Bun from this repo entirely, CI included. The toolchain is
- *    mise node + pnpm and nothing else.
- * 2. A sha256 sidecar is a stronger pin than a git tag, which can be moved.
- * 3. It is literally what an outside auditor would run — the neutrality
- *    property the whole plan is about.
- * 4. A source checkout would need `bun install` against `receipt-verify
- *    ^0.9.0`, the very skew the differential exists to expose, and pinning a
- *    lockfile for someone else's repo is not maintainable.
+ * 1. It removes the per-host release-asset matrix entirely. There was no
+ *    `linux-arm64`, `darwin-x64` or Windows asset for the Bun binary, so
+ *    those hosts skipped the differential test; an npm package runs
+ *    identically everywhere `node` does.
+ * 2. It is literally what an outside auditor runs (`npx -y
+ *    @forestrie/forestrie-cli`) — the neutrality property the whole plan is
+ *    about — and it is now on the same `@forestrie/receipt-verify` (1.0.0)
+ *    and `@forestrie/encoding` (0.7.0) as this package, so the version-skew
+ *    triage row this file's docs used to carry no longer applies.
+ * 3. A checksum sidecar is no longer available (npm packages are not
+ *    sha256-sidecarred the way GitHub release assets are), so the pin is now
+ *    the exact, deliberately-bumped `FORESTRIE_CLI_VERSION` below, resolved
+ *    through npm's own registry-integrity check on install.
  *
- * The cost: the pin tracks RELEASED behaviour, not an arbitrary commit. That
- * is a feature — released behaviour is what an outsider can reproduce.
+ * ## How the version is resolved
+ *
+ * `npm install --no-save --prefix <cache dir>
+ * @forestrie/forestrie-cli@<FORESTRIE_CLI_VERSION>`, once per pinned version,
+ * into a directory under the gitignored `node_modules/.cache/` — mirroring
+ * the old binary cache's shape (keyed by pin, reused across runs, a bump
+ * invalidates it by construction). `--no-save --prefix` means this NEVER
+ * touches this repo's own `package.json` or pnpm lockfile: `@forestrie/
+ * forestrie-cli` is not, and must not become, a dependency of this package
+ * for the differential test alone (see docs/differential-test.md).
+ *
+ * The installed `dist/cli.js` is then run as `node <entry> <args>` — under
+ * the SAME node binary running the test, not execed directly — so this works
+ * identically on linux, darwin and Windows. There is no per-platform skip any
+ * more.
  *
  * Rebase procedure: docs/differential-test.md.
  */
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  writeFileSync,
-} from "node:fs";
-import { arch, platform } from "node:os";
+import { existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** Bump deliberately; see docs/differential-test.md. */
-export const CLI_TAG = "v0.7.0";
-
-/**
- * Verified 2026-09-05 against the release's `.sha256` sidecars AND GitHub's
- * own asset digests — two independent witnesses for the same bytes.
- */
-export const CLI_SHA256: Readonly<Record<string, string>> = {
-  "linux-x64":
-    "f211de74dc7944fb15ab652efddd0a9d6517239adea9c98cb0dd20484eccc1ed",
-  "darwin-arm64":
-    "a0b68282b39e491382051e2d496e677e35fd5ff814888a5fbf101d27bd0d175b",
-};
-
-const ASSET_NAMES: Readonly<Record<string, string>> = {
-  "linux-x64": "forestrie-linux-x64",
-  "darwin-arm64": "forestrie-darwin-arm64",
-};
+export const FORESTRIE_CLI_VERSION = "0.8.0";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
-export function currentTarget(): string | null {
-  const p = platform();
-  const a = arch();
-  if (p === "linux" && a === "x64") return "linux-x64";
-  if (p === "darwin" && a === "arm64") return "darwin-arm64";
-  // No release asset for this host (linux-arm64, darwin-x64, win32). The
-  // differential is a cross-check, not a correctness gate on every developer's
-  // laptop — CI runs the targets that exist.
-  return null;
-}
+/**
+ * Scratch install root, keyed by version. Gitignored (`node_modules/.cache/`)
+ * and never shared with this repo's own pnpm-managed `node_modules` — `npm
+ * install --prefix` keeps its own tree entirely separate.
+ */
+const installDir = join(
+  repoRoot,
+  "node_modules",
+  ".cache",
+  "forestrie-cli-npm",
+  FORESTRIE_CLI_VERSION,
+);
+const cliEntry = join(
+  installDir,
+  "node_modules",
+  "@forestrie",
+  "forestrie-cli",
+  "dist",
+  "cli.js",
+);
 
-function sha256File(path: string): string {
-  return createHash("sha256").update(readFileSync(path)).digest("hex");
-}
+export type CliRun = { status: number; stdout: string; stderr: string };
 
 export type ResolveOutcome =
-  | { bin: string; source: "env" | "cache" | "download" }
-  | { bin: null; reason: string };
+  | { run: (args: string[]) => CliRun; source: "env" | "npm-install" }
+  | { run: null; reason: string };
+
+function spawnViaNode(entry: string, args: string[]): CliRun {
+  const res = spawnSync(process.execPath, [entry, ...args], {
+    encoding: "utf8",
+    timeout: 60_000,
+  });
+  return {
+    status: res.status ?? -1,
+    stdout: res.stdout ?? "",
+    stderr: res.stderr ?? "",
+  };
+}
+
+/** Never throws: a crash is data the test wants. */
+function spawnDirect(bin: string, args: string[]): CliRun {
+  const res = spawnSync(bin, args, { encoding: "utf8", timeout: 60_000 });
+  return {
+    status: res.status ?? -1,
+    stdout: res.stdout ?? "",
+    stderr: res.stderr ?? "",
+  };
+}
 
 /**
- * Resolve the pinned reference binary:
- *   1. `$FORESTRIE_CLI_BIN`, if set (local override / air-gapped runs)
- *   2. a cached copy under `node_modules/.cache/forestrie-cli/<tag>/`
- *   3. download from the GitHub release, verify sha256, cache, chmod +x
+ * Resolve the reference client:
  *
- * Returns `{bin: null, reason}` when unavailable, so the caller can skip with
+ *   1. `$FORESTRIE_CLI_BIN`, if set. Deliberately **not** version-checked: an
+ *      override is an explicit local decision to test against something
+ *      else (a locally built binary, a dev checkout's compiled entry point,
+ *      …), and silently refusing it would make bisecting a divergence
+ *      impossible. Run directly, exactly as before this file switched to
+ *      npm. The test warns when it is in use.
+ *   2. `npm install --no-save` of the pinned `FORESTRIE_CLI_VERSION` into a
+ *      cached scratch prefix, then `node <installed dist/cli.js>`.
+ *
+ * Returns `{run: null, reason}` when unavailable, so the caller can skip with
  * a legible one-line reason instead of a mystery.
  */
 export async function resolveCliBinary(): Promise<ResolveOutcome> {
@@ -89,94 +117,53 @@ export async function resolveCliBinary(): Promise<ResolveOutcome> {
   if (override !== undefined && override !== "") {
     if (!existsSync(override)) {
       return {
-        bin: null,
+        run: null,
         reason: `FORESTRIE_CLI_BIN='${override}' not found`,
       };
     }
-    // Deliberately NOT checksum-checked: an override is an explicit local
-    // decision to test against something else, and silently refusing it would
-    // make bisecting a divergence impossible.
-    return { bin: override, source: "env" };
+    return { run: (args) => spawnDirect(override, args), source: "env" };
   }
 
-  const target = currentTarget();
-  if (target === null) {
-    return {
-      bin: null,
-      reason: `no forestrie ${CLI_TAG} release asset for ${platform()}-${arch()} (assets exist for linux-x64 and darwin-arm64)`,
-    };
-  }
-  const expected = CLI_SHA256[target];
-  const asset = ASSET_NAMES[target];
-  if (expected === undefined || asset === undefined) {
-    return { bin: null, reason: `no pinned digest for target '${target}'` };
-  }
-
-  const cacheDir = join(
-    repoRoot,
-    "node_modules",
-    ".cache",
-    "forestrie-cli",
-    CLI_TAG,
-  );
-  const cached = join(cacheDir, asset);
-
-  if (existsSync(cached)) {
-    const actual = sha256File(cached);
-    if (actual === expected) {
-      chmodSync(cached, 0o755);
-      return { bin: cached, source: "cache" };
+  if (!existsSync(cliEntry)) {
+    mkdirSync(installDir, { recursive: true });
+    // No lockfile involved: this is a scratch `--prefix`, resolved fresh
+    // against the public registry. `--no-save` is what keeps it from ever
+    // touching this repo's own package.json.
+    const res = spawnSync(
+      "npm",
+      [
+        "install",
+        "--no-save",
+        "--no-audit",
+        "--no-fund",
+        "--prefix",
+        installDir,
+        `@forestrie/forestrie-cli@${FORESTRIE_CLI_VERSION}`,
+      ],
+      { encoding: "utf8", timeout: 300_000 },
+    );
+    if (res.status !== 0) {
+      return {
+        run: null,
+        reason: `npm install of @forestrie/forestrie-cli@${FORESTRIE_CLI_VERSION} failed: ${(
+          res.stderr ||
+          res.error?.message ||
+          "npm install failed"
+        )
+          .trim()
+          .slice(0, 800)}`,
+      };
     }
-    // A corrupt cache must not become a silent re-download loop or, worse, a
-    // differential run against unpinned bytes.
-    return {
-      bin: null,
-      reason: `cached ${asset} has sha256 ${actual}, expected ${expected}; delete ${cacheDir} and retry`,
-    };
+    if (!existsSync(cliEntry)) {
+      return {
+        run: null,
+        reason: `npm install of @forestrie/forestrie-cli@${FORESTRIE_CLI_VERSION} succeeded but ${cliEntry} is missing — has the package's bin layout changed?`,
+      };
+    }
   }
 
-  const url = `https://github.com/forestrie/forestrie-cli/releases/download/${CLI_TAG}/${asset}`;
-  mkdirSync(cacheDir, { recursive: true });
-  const tmp = `${cached}.part`;
-
-  // curl rather than fetch: this file runs in the `differential` vitest
-  // project, which is not fetch-gated, but the binary is ~60-100 MB and
-  // streaming it through a Response body buffer is a needless 100 MB of heap.
-  const res = spawnSync(
-    "curl",
-    ["-sSfL", "--retry", "3", "--max-time", "600", "-o", tmp, url],
-    { encoding: "utf8" },
-  );
-  if (res.status !== 0) {
-    return {
-      bin: null,
-      reason: `could not download ${url}: ${(res.stderr || res.error?.message || "curl failed").trim()}`,
-    };
-  }
-
-  const actual = sha256File(tmp);
-  if (actual !== expected) {
-    // Do NOT keep bytes that failed the pin. A differential test run against
-    // unverified bytes proves nothing and would be worse than not running.
-    writeFileSync(`${tmp}.rejected-digest`, `${actual}\n`);
-    return {
-      bin: null,
-      reason: `downloaded ${asset} has sha256 ${actual}, expected ${expected} — refusing to use it`,
-    };
-  }
-  renameSync(tmp, cached);
-  chmodSync(cached, 0o755);
-  return { bin: cached, source: "download" };
-}
-
-export type CliRun = { status: number; stdout: string; stderr: string };
-
-/** Run the reference CLI. Never throws: a crash is data the test wants. */
-export function runCli(bin: string, args: string[]): CliRun {
-  const res = spawnSync(bin, args, { encoding: "utf8", timeout: 60_000 });
   return {
-    status: res.status ?? -1,
-    stdout: res.stdout ?? "",
-    stderr: res.stderr ?? "",
+    run: (args) => spawnViaNode(cliEntry, args),
+    source: "npm-install",
   };
 }

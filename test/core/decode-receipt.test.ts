@@ -4,7 +4,13 @@
  * produces is a contract for anyone rendering a receipt in a transcript.
  */
 import { describe, expect, it } from "vitest";
-import { DecodeReceiptError, decodeReceipt } from "../../src/core/index.js";
+import {
+  ALG_NAMES,
+  DecodeReceiptError,
+  HEADER_LABELS,
+  decodeReceipt,
+  headerLabelInfo,
+} from "../../src/core/index.js";
 import { readFixture } from "../../src/node/fixtures.js";
 
 const RECEIPT = readFixture("golden/grant-receipt.cbor");
@@ -103,5 +109,40 @@ describe("decodeReceipt — failures name the stage that rejected the input", ()
       expect(err).toBeInstanceOf(DecodeReceiptError);
       expect((err as DecodeReceiptError).stage).toBe("inclusion-proof");
     }
+  });
+});
+
+/**
+ * Regression guard for plan-2609-02 step P5.5: delegating decode_receipt's
+ * rendering to `@forestrie/forestrie-cli`'s published decoder was tried and
+ * reverted because its label registry does not yet carry these two
+ * forestrie private-use codepoints, which real receipts use — a signer
+ * legitimately using WebAuthn delegation, or a session-key endorsement,
+ * would have had their header entry's `name` silently turn into `null`. No
+ * fixture in this repo's suite carries either codepoint (golden, burial and
+ * self-bundle all predate WebAuthn delegation and session-key endorsement),
+ * so this asserts directly against the label tables `decodeReceipt` renders
+ * from — no receipt needed — rather than relying on a fixture that does not
+ * exist here. Authoritative source:
+ * https://github.com/forestrie/protocol/blob/main/spec/label-registry.md
+ */
+describe("decodeReceipt's label registry — codepoints without a golden fixture", () => {
+  it("names algorithm -65800 (ALG_ES256_WEBAUTHN, WebAuthn delegation)", () => {
+    expect(ALG_NAMES.get(-65800)).toBe(
+      "ES256-WebAuthn (forestrie private-use)",
+    );
+  });
+
+  it("names header label -65801 (the session-key endorsement, TBD2)", () => {
+    expect(HEADER_LABELS.get(-65801)).toEqual({
+      name: "session key endorsement",
+      note: "forestrie private-use",
+    });
+    // headerLabelInfo() is the actual lookup a header entry's rendering
+    // goes through; assert through it too, not just the underlying map.
+    expect(headerLabelInfo(-65801)).toEqual({
+      name: "session key endorsement",
+      note: "forestrie private-use",
+    });
   });
 });

@@ -80,23 +80,36 @@ the golden vectors above, at `test/fixtures/self-bundle/` — read its
 `PROVENANCE.md`, not `fixtures/PROVENANCE.md`, before touching it. See
 [docs/self-registration.md](docs/self-registration.md).
 
-## `src/core/decode-receipt.ts` is a placeholder for a dependency
+## `src/core/decode-receipt.ts` stays a local renderer, deliberately
 
-It is written fresh over the published packages because `forestrie-cli` at
-v0.7.0 is `private: true` with no importable surface. `@forestrie/forestrie-cli@0.8.0`
-(prepared, **not yet on npm**) exposes the same thing at
-`@forestrie/forestrie-cli/decode-receipt`.
+It is written fresh over the published packages — `parseReceipt` from
+`@forestrie/receipt-verify`, `decodeCborDeterministic` /
+`coseUnprotectedToMap` / `decodeCoseSign1` / `CborTag` from
+`@forestrie/encoding` — rather than delegating to
+`@forestrie/forestrie-cli@0.8.0`'s published `/decode-receipt` subpath,
+which is otherwise name- and shape-compatible. **Tried and reverted**
+(plan-2609-02 step P5.5): the CLI's published label registry does not yet
+carry two forestrie private-use codepoints real receipts use — COSE
+algorithm `-65800` (`ALG_ES256_WEBAUTHN`) and header label `-65801` (the
+session-key endorsement, `TBD2`) — so delegating silently turned their
+`name` into `null` in `decode_receipt`'s output. No gate that ran for that
+change could see the regression, because no fixture in this repo exercises
+either codepoint. This file's own label tables are kept in sync with the
+authoritative registry:
+[forestrie/protocol `spec/label-registry.md`](https://github.com/forestrie/protocol/blob/main/spec/label-registry.md).
 
-**When that publishes, delete this file** and re-export from the dependency.
-The public surface is deliberately name- and shape-compatible so that is a
-one-line import change. The file's own header carries the checklist; the
-non-obvious step is re-running `check:encoding-single-copy` afterwards (the CLI
-pins `encoding ^0.7.0`, so it _should_ dedupe to our exact 0.7.0 — verify, do
-not assume).
+**Revisit delegating to the dependency once it ships those two labels** —
+re-run `check:encoding-single-copy` and `check:browser-safe` afterward (the
+CLI pins `encoding ^0.7.0`, so it _should_ dedupe to our exact 0.7.0 — verify,
+do not assume), and add fixture-free unit tests asserting the two label
+names render correctly first, so a future regression here is caught by the
+gate rather than by review.
 
-We do **not** vendor code from other repos into this tree. If something is
-worth depending on, depend on it; if it is not published, either write it here
-in the open or wait.
+We do **not** vendor code from other repos into this tree. This file is not
+vendoring `forestrie-cli`'s source — it is an independent implementation
+against the same public registry and the same published wire-format
+packages, which is why the differential test's `decode_receipt` comparison
+is meaningful rather than circular.
 
 ## Nothing writes to stdout in stdio mode except the transport
 
@@ -145,7 +158,7 @@ four silent "skipped" rows would **hide the failure**. Do not simplify it away.
 
 ```
 pnpm test              # check:browser-safe && check:encoding-single-copy && unit
-pnpm test:differential # needs the pinned forestrie CLI binary; see docs/
+pnpm test:differential # npm-installs the pinned forestrie CLI version; see docs/
 pnpm typecheck
 pnpm format:check
 pnpm build

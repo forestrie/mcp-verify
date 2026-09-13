@@ -78,10 +78,10 @@ cannot distinguish, and the demo transcript:
 
 Which is why this repo goes to some trouble to make that re-running possible:
 
-- **A differential test** against the published, sha256-pinned `forestrie`
-  release binary. For every tamper variant under both signature roots, our `ok`,
-  `stage`, `reason` and `stages[]` must equal the reference's byte for byte.
-  Currently 18 tests, zero disagreements. See
+- **A differential test** against the published `@forestrie/forestrie-cli`
+  npm package, pinned at an exact version. For every tamper variant under both
+  signature roots, our `ok`, `stage`, `reason` and `stages[]` must equal the
+  reference's byte for byte. Currently 18 tests, zero disagreements. See
   [docs/differential-test.md](docs/differential-test.md).
 - **Frozen conformance vectors**, sha256-pinned to their manifest, shipped
   inside the tarball. See [fixtures/PROVENANCE.md](fixtures/PROVENANCE.md).
@@ -93,6 +93,12 @@ Which is why this repo goes to some trouble to make that re-running possible:
 
 The verification itself is `@forestrie/receipt-verify@1.0.0`, which is
 published, MIT, and SLSA-attested independently of this package.
+`decode_receipt`'s rendering stays a local implementation — over the same
+published packages, against the same public
+[label registry](https://github.com/forestrie/protocol/blob/main/spec/label-registry.md) —
+rather than a dependency on `@forestrie/forestrie-cli`, until that package's
+own published decoder carries the full registry too. See
+[docs/dependency-surface.md](docs/dependency-surface.md).
 
 At release time, this package also registers its own provenance in a
 Forestrie log and ships the receipt inside the tarball — two independent
@@ -105,7 +111,7 @@ circular one. See [docs/self-registration.md](docs/self-registration.md).
 mise install           # node 22.14.0, pnpm 10.6.5
 pnpm install
 pnpm test              # browser-safe gate + encoding-copy gate + unit tests
-pnpm test:differential # needs the pinned forestrie CLI binary
+pnpm test:differential # npm-installs the pinned forestrie CLI version
 pnpm build
 ```
 
