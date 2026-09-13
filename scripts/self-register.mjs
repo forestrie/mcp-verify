@@ -5,11 +5,12 @@
  * Writes `provenance.json` = `{name, version, gitCommit, builtAt}`
  * (`serverJsonSha256` is deferred to phase 3 — AGENTS.md forbids `server.json`
  * before the DNS record lands), signs it with `forestrie sign-statement`,
- * registers it with `forestrie register` and waits for the receipt, fetches
- * the forest's kept-copy genesis, derives the release key's public point
- * from `FORESTRIE_RELEASE_KEY_PEM`, and bundles all of it under
- * `fixtures/self/` (never committed — see .gitignore) so it ships inside the
- * npm tarball via `package.json#files`.
+ * delegates sealing on the publications log with `forestrie delegate` (see
+ * below), registers the signed statement with `forestrie register` and
+ * waits for the receipt, fetches the forest's kept-copy genesis, derives
+ * the release key's public point from `FORESTRIE_RELEASE_KEY_PEM`, and
+ * bundles all of it under `fixtures/self/` (never committed — see
+ * .gitignore) so it ships inside the npm tarball via `package.json#files`.
  *
  * The public point (`log-key.xy.b64`) exists because the publications log is
  * a grandchild of the forest root (root → auth log → publications log), and
@@ -19,6 +20,21 @@
  * `genesis` with `delegation_invalid`. `verify_self` (step 2.4) will default
  * to `known-log-key` with this bundled point; `genesis.cbor` still ships,
  * both because it is cheap and because the walk may land later. See
+ * docs/self-registration.md.
+ *
+ * ## Delegate before register (found 2026-09-13, plan-2609-02 phase 2
+ * amendment)
+ *
+ * A receipt needs the operator's sealer to checkpoint the publications log,
+ * and that requires a delegation certificate from the log owner (the
+ * release key) held by the delegation coordinator. Standing delegations
+ * expire (the coordinator's `STANDING_DELEGATION_TTL_SECONDS`, six hours),
+ * so a release more than that long after the last `forestrie delegate`
+ * stalls: `forestrie register` waits the full `--timeout 300` for a receipt
+ * that never comes, because the sealer has nothing to checkpoint with. Every
+ * run now delegates first, with a 24-hour `--ttl-seconds` — plenty for the
+ * lease to outlive this one run — so registration never depends on a
+ * standing delegation someone made by hand hours or days earlier. See
  * docs/self-registration.md.
  *
  * Exit code: 0 on success, non-zero on ANY failure (a missing env var, a
@@ -34,22 +50,24 @@
  *                                                   # `test/node/self-register.test.ts`
  *   node scripts/self-register.mjs --out-dir=<dir> # override the bundle dir
  *
- * Every external interaction (resolving the CLI binary, running it, fetching
+ * Every external interaction (resolving the CLI, running it, fetching
  * genesis) is an injectable function, defaulted to the real implementation
  * unless `--dry-run` swaps in a local stub, or a caller (the test file)
  * overrides it directly — that is what makes both the dry-run path and the
  * "registration failed" path unit-testable without a network or a real key.
  *
- * CLI resolution mirrors `test/differential/cli-binary.ts`'s pin (same
- * `CLI_TAG` / sha256 map — that pinned v0.7.0 binary already has
- * `sign-statement` and `register`, confirmed via `--help`). Kept as a
- * separate copy rather than an import: that module is TypeScript, compiled
- * only for vitest, while this script ships as plain JS under `scripts/` and
- * runs via a bare `node` in the release workflow. If the two ever drift,
- * bump both together — see docs/differential-test.md. `FORESTRIE_CLI` is an
- * explicit override, so once P5 publishes `@forestrie/forestrie-cli` to npm,
- * CI can `npm install -g` it and point `FORESTRIE_CLI` at the installed
- * `forestrie` bin without this script changing at all.
+ * CLI resolution: `npm install --no-save` of the pinned
+ * `@forestrie/forestrie-cli` into a version-keyed cache, run as `node
+ * <installed dist/cli.js>` — the same mechanism
+ * `test/differential/cli-binary.ts` uses (plan-2609-02 workstream P step P5
+ * switched the differential test; this script previously still downloaded a
+ * sha256-pinned v0.7.0 GitHub release binary, which this change removes,
+ * along with its per-platform asset matrix). The install-and-cache
+ * mechanics live in `scripts/forestrie-cli-npm.mjs`, shared with that test
+ * file so the version pin and cache layout have one home, not two.
+ * `FORESTRIE_CLI` is an explicit override to a local node-runnable entry
+ * point (a dev checkout's built `dist/cli.js`), for bisecting without
+ * touching the npm cache.
  */
 import { spawnSync } from "node:child_process";
 import { createHash, createPublicKey, generateKeyPairSync } from "node:crypto";
@@ -60,13 +78,16 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { arch, platform, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  FORESTRIE_CLI_VERSION,
+  ensureForestrieCliInstalled,
+} from "./forestrie-cli-npm.mjs";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -130,39 +151,18 @@ function generateDryRunKeyPem() {
 }
 
 // ---------------------------------------------------------------------------
-// Pinned reference CLI — mirrors test/differential/cli-binary.ts. See the
-// file header for why this is a copy, not an import.
+// Pinned reference CLI, resolved from npm. See the file header — the
+// install-and-cache mechanics are shared with test/differential/cli-binary.ts
+// via scripts/forestrie-cli-npm.mjs.
 // ---------------------------------------------------------------------------
 
-const CLI_TAG = "v0.7.0";
-const CLI_SHA256 = Object.freeze({
-  "linux-x64":
-    "f211de74dc7944fb15ab652efddd0a9d6517239adea9c98cb0dd20484eccc1ed",
-  "darwin-arm64":
-    "a0b68282b39e491382051e2d496e677e35fd5ff814888a5fbf101d27bd0d175b",
-});
-const ASSET_NAMES = Object.freeze({
-  "linux-x64": "forestrie-linux-x64",
-  "darwin-arm64": "forestrie-darwin-arm64",
-});
-
-function currentTarget() {
-  const p = platform();
-  const a = arch();
-  if (p === "linux" && a === "x64") return "linux-x64";
-  if (p === "darwin" && a === "arm64") return "darwin-arm64";
-  return null;
-}
-
-function sha256File(path) {
-  return createHash("sha256").update(readFileSync(path)).digest("hex");
-}
-
 /**
- * Resolve the `forestrie` binary: `FORESTRIE_CLI` override first (the path
- * once CI installs `@forestrie/forestrie-cli` from npm), else the cached or
- * freshly-downloaded sha256-pinned release binary — the same one
- * `test/differential/cli-binary.ts` uses.
+ * Resolve the `forestrie` CLI entry point: `FORESTRIE_CLI` override first (a
+ * local node-runnable `dist/cli.js`, for bisecting), else `npm install
+ * --no-save` of the pinned `@forestrie/forestrie-cli` into a version-keyed
+ * cache — the same mechanism `test/differential/cli-binary.ts` uses. Returns
+ * a path to a JS entry point; `defaultRunCli` runs it as `node <entry>
+ * <args>`.
  */
 async function defaultResolveCli({ env, log }) {
   const override = env.FORESTRIE_CLI;
@@ -173,66 +173,29 @@ async function defaultResolveCli({ env, log }) {
     return override;
   }
 
-  const target = currentTarget();
-  if (target === null) {
+  try {
+    return ensureForestrieCliInstalled(REPO_ROOT, {
+      version: FORESTRIE_CLI_VERSION,
+      log,
+    });
+  } catch (err) {
     throw new SelfRegisterError(
-      `no forestrie ${CLI_TAG} release asset for ${platform()}-${arch()}; ` +
-        "set FORESTRIE_CLI to a local binary (or, once @forestrie/forestrie-cli " +
-        "publishes to npm, to its installed bin)",
+      err instanceof Error ? err.message : String(err),
     );
   }
-  const expected = CLI_SHA256[target];
-  const asset = ASSET_NAMES[target];
-  const cacheDir = join(
-    REPO_ROOT,
-    "node_modules",
-    ".cache",
-    "forestrie-cli",
-    CLI_TAG,
-  );
-  const cached = join(cacheDir, asset);
-
-  if (existsSync(cached)) {
-    const actual = sha256File(cached);
-    if (actual !== expected) {
-      throw new SelfRegisterError(
-        `cached ${asset} has sha256 ${actual}, expected ${expected}; delete ${cacheDir} and retry`,
-      );
-    }
-    chmodSync(cached, 0o755);
-    return cached;
-  }
-
-  const url = `https://github.com/forestrie/forestrie-cli/releases/download/${CLI_TAG}/${asset}`;
-  log(
-    `self-register: downloading pinned forestrie CLI ${CLI_TAG} from ${url}`,
-  );
-  mkdirSync(cacheDir, { recursive: true });
-  const tmp = `${cached}.part`;
-  const res = spawnSync(
-    "curl",
-    ["-sSfL", "--retry", "3", "--max-time", "600", "-o", tmp, url],
-    { encoding: "utf8" },
-  );
-  if (res.status !== 0) {
-    throw new SelfRegisterError(
-      `could not download ${url}: ${(res.stderr || res.error?.message || "curl failed").trim()}`,
-    );
-  }
-  const actual = sha256File(tmp);
-  if (actual !== expected) {
-    throw new SelfRegisterError(
-      `downloaded ${asset} has sha256 ${actual}, expected ${expected} — refusing to use it`,
-    );
-  }
-  renameSync(tmp, cached);
-  chmodSync(cached, 0o755);
-  return cached;
 }
 
-/** Run the resolved CLI. Never throws: a non-zero exit is data the caller wants. */
-function defaultRunCli(bin, args) {
-  const res = spawnSync(bin, args, { encoding: "utf8", timeout: 300_000 });
+/**
+ * Run the resolved CLI entry point under the same `node` running this
+ * script — never execed directly, since npm ships `@forestrie/forestrie-cli`
+ * as plain JS (`bin: { forestrie: "dist/cli.js" }`), not a platform binary.
+ * Never throws: a non-zero exit is data the caller wants.
+ */
+function defaultRunCli(entry, args) {
+  const res = spawnSync(process.execPath, [entry, ...args], {
+    encoding: "utf8",
+    timeout: 300_000,
+  });
   return {
     status: res.status ?? 1,
     stdout: res.stdout ?? "",
@@ -277,6 +240,22 @@ function stubRunCli(_bin, args) {
     const i = args.indexOf(name);
     return i === -1 ? undefined : args[i + 1];
   };
+  if (cmd === "delegate") {
+    return {
+      status: 0,
+      stdout: JSON.stringify({
+        command: "delegate",
+        status: "submitted",
+        logId: flag("--log-id"),
+        sealerId: "dry-run-sealer",
+        epoch: 0,
+        mmrStart: 0,
+        mmrEnd: 9007199254740991,
+        expiresAt: "1970-01-01T00:00:00.000Z",
+      }),
+      stderr: "",
+    };
+  }
   if (cmd === "sign-statement") {
     const payload = readFileSync(flag("--payload"));
     const fakeCose = Buffer.concat([
@@ -336,7 +315,13 @@ const DRY_RUN_DEFAULTS = Object.freeze({
   baseUrl: "https://dry-run.invalid",
   logId: "00000000-0000-0000-0000-000000000000",
   grantB64: "ZHJ5LXJ1bg==", // base64("dry-run")
+  coordinatorUrl: "https://dry-run-coordinator.invalid",
+  knownSealerKey: "ZHJ5LXJ1bi1zZWFsZXItdm91Y2hlci1rZXktMzItYnl0ZXMtLS0=",
+  publicationsLogId: "11111111-1111-1111-1111-111111111111",
 });
+
+/** `forestrie delegate`'s lease TTL — 24h, plenty to outlive this one run. */
+const DELEGATE_TTL_SECONDS = "86400";
 
 /**
  * The full release-time flow. Every external effect is an injected function
@@ -367,6 +352,23 @@ export async function selfRegister(opts = {}) {
   const grantB64 =
     env.FORESTRIE_GRANT_B64 ??
     (dryRun ? DRY_RUN_DEFAULTS.grantB64 : undefined);
+  // The delegation coordinator and the sealer voucher key it checks
+  // `forestrie delegate` against — both public values, GitHub Actions
+  // `vars.*` in the npm-publish environment (see docs/self-registration.md).
+  const coordinatorUrl =
+    env.DELEGATION_COORDINATOR_URL ??
+    (dryRun ? DRY_RUN_DEFAULTS.coordinatorUrl : undefined);
+  const knownSealerKey =
+    env.KNOWN_SEALER_KEY ??
+    (dryRun ? DRY_RUN_DEFAULTS.knownSealerKey : undefined);
+  // The publications log itself — a grandchild of the forest root named by
+  // FORESTRIE_LOG_ID (see "The grant chain" in docs/self-registration.md).
+  // Nothing in this script derives it from FORESTRIE_GRANT_B64 today (the
+  // CLI decodes the grant internally for `register`), so it is its own var
+  // rather than a duplicate parse of the grant.
+  const publicationsLogId =
+    env.FORESTRIE_PUBLICATIONS_LOG_ID ??
+    (dryRun ? DRY_RUN_DEFAULTS.publicationsLogId : undefined);
 
   if (!dryRun) {
     const missing = [
@@ -374,6 +376,9 @@ export async function selfRegister(opts = {}) {
       ["FORESTRIE_LOG_ID", logId],
       ["FORESTRIE_RELEASE_KEY_PEM", keyPem],
       ["FORESTRIE_GRANT_B64", grantB64],
+      ["DELEGATION_COORDINATOR_URL", coordinatorUrl],
+      ["KNOWN_SEALER_KEY", knownSealerKey],
+      ["FORESTRIE_PUBLICATIONS_LOG_ID", publicationsLogId],
     ]
       .filter(([, v]) => v === undefined || v === "")
       .map(([name]) => name);
@@ -411,7 +416,47 @@ export async function selfRegister(opts = {}) {
     chmodSync(keyPath, 0o600);
     const statementPath = join(stageDir, "statement.cose");
     let signRes;
+    let delegateRes;
     try {
+      // Delegate BEFORE registering: a receipt needs the operator's sealer
+      // to checkpoint the publications log, and that needs a fresh
+      // delegation certificate from this log-owner key held by the
+      // coordinator — see the file header. Runs on the same path as
+      // sign-statement/register (real CLI or dry-run stub alike), so a
+      // rehearsal dispatch delegates for real exactly when it registers for
+      // real, and --dry-run stubs both together.
+      delegateRes = runCli(cliBin, [
+        "delegate",
+        "--coordinator-url",
+        coordinatorUrl,
+        "--log-id",
+        publicationsLogId,
+        "--sign-with",
+        keyPath,
+        "--known-sealer-key",
+        knownSealerKey,
+        "--ttl-seconds",
+        DELEGATE_TTL_SECONDS,
+        "--json",
+      ]);
+      if (delegateRes.status !== 0) {
+        throw new SelfRegisterError(
+          `forestrie delegate failed (exit ${delegateRes.status}): ${delegateRes.stderr.trim() || delegateRes.stdout.trim()}`,
+        );
+      }
+      let delegateJson;
+      try {
+        delegateJson = JSON.parse(delegateRes.stdout);
+      } catch {
+        throw new SelfRegisterError(
+          `forestrie delegate --json produced non-JSON stdout: ${delegateRes.stdout}`,
+        );
+      }
+      log(
+        `self-register: delegated sealer for log ${publicationsLogId} ` +
+          `(expiresAt=${delegateJson.expiresAt}, mmrEnd=${delegateJson.mmrEnd})`,
+      );
+
       signRes = runCli(cliBin, [
         "sign-statement",
         "--key",
@@ -424,7 +469,7 @@ export async function selfRegister(opts = {}) {
         statementPath,
       ]);
     } finally {
-      // The private key must not outlive the one CLI invocation that needs it.
+      // The private key must not outlive the CLI invocations that need it.
       rmSync(keyPath, { force: true });
     }
     if (signRes.status !== 0) {

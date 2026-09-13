@@ -29,7 +29,10 @@
  * invalidates it by construction). `--no-save --prefix` means this NEVER
  * touches this repo's own `package.json` or pnpm lockfile: `@forestrie/
  * forestrie-cli` is not, and must not become, a dependency of this package
- * for the differential test alone (see docs/differential-test.md).
+ * for the differential test alone (see docs/differential-test.md). The
+ * install-and-cache mechanics live in `scripts/forestrie-cli-npm.mjs`,
+ * shared with `scripts/self-register.mjs` — one pinned version, one cache
+ * layout, not two.
  *
  * The installed `dist/cli.js` is then run as `node <entry> <args>` — under
  * the SAME node binary running the test, not execed directly — so this works
@@ -39,35 +42,19 @@
  * Rebase procedure: docs/differential-test.md.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  FORESTRIE_CLI_VERSION,
+  cliEntryPath,
+  ensureForestrieCliInstalled,
+} from "../../scripts/forestrie-cli-npm.mjs";
 
-/** Bump deliberately; see docs/differential-test.md. */
-export const FORESTRIE_CLI_VERSION = "0.8.0";
+export { FORESTRIE_CLI_VERSION };
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-
-/**
- * Scratch install root, keyed by version. Gitignored (`node_modules/.cache/`)
- * and never shared with this repo's own pnpm-managed `node_modules` — `npm
- * install --prefix` keeps its own tree entirely separate.
- */
-const installDir = join(
-  repoRoot,
-  "node_modules",
-  ".cache",
-  "forestrie-cli-npm",
-  FORESTRIE_CLI_VERSION,
-);
-const cliEntry = join(
-  installDir,
-  "node_modules",
-  "@forestrie",
-  "forestrie-cli",
-  "dist",
-  "cli.js",
-);
+const cliEntry = cliEntryPath(repoRoot, FORESTRIE_CLI_VERSION);
 
 export type CliRun = { status: number; stdout: string; stderr: string };
 
@@ -125,39 +112,17 @@ export async function resolveCliBinary(): Promise<ResolveOutcome> {
   }
 
   if (!existsSync(cliEntry)) {
-    mkdirSync(installDir, { recursive: true });
-    // No lockfile involved: this is a scratch `--prefix`, resolved fresh
-    // against the public registry. `--no-save` is what keeps it from ever
-    // touching this repo's own package.json.
-    const res = spawnSync(
-      "npm",
-      [
-        "install",
-        "--no-save",
-        "--no-audit",
-        "--no-fund",
-        "--prefix",
-        installDir,
-        `@forestrie/forestrie-cli@${FORESTRIE_CLI_VERSION}`,
-      ],
-      { encoding: "utf8", timeout: 300_000 },
-    );
-    if (res.status !== 0) {
+    try {
+      // No lockfile involved: this is a scratch `--prefix`, resolved fresh
+      // against the public registry. `--no-save` is what keeps it from ever
+      // touching this repo's own package.json.
+      ensureForestrieCliInstalled(repoRoot, {
+        version: FORESTRIE_CLI_VERSION,
+      });
+    } catch (err) {
       return {
         run: null,
-        reason: `npm install of @forestrie/forestrie-cli@${FORESTRIE_CLI_VERSION} failed: ${(
-          res.stderr ||
-          res.error?.message ||
-          "npm install failed"
-        )
-          .trim()
-          .slice(0, 800)}`,
-      };
-    }
-    if (!existsSync(cliEntry)) {
-      return {
-        run: null,
-        reason: `npm install of @forestrie/forestrie-cli@${FORESTRIE_CLI_VERSION} succeeded but ${cliEntry} is missing — has the package's bin layout changed?`,
+        reason: err instanceof Error ? err.message : String(err),
       };
     }
   }
