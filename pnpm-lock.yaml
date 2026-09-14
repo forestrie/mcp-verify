@@ -15,8 +15,8 @@ importers:
         specifier: 0.3.0
         version: 0.3.0
       '@forestrie/receipt-verify':
-        specifier: 1.0.0
-        version: 1.0.0
+        specifier: 1.1.0
+        version: 1.1.0
       '@modelcontextprotocol/sdk':
         specifier: 1.30.0
         version: 1.30.0(zod@4.5.4)
@@ -198,8 +198,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@forestrie/chain-rpc@0.2.0':
-    resolution: {integrity: sha512-StFJkBnoEn5HV/rKdkyi/+d2qQrmTwyUZ6y+ux+7eebJgMitEa3lj9b7BlcgvORTcddvh/IIHOCHmENZswOZiA==}
+  '@forestrie/chain-rpc@0.3.0':
+    resolution: {integrity: sha512-HLLu2EiIJ5sfEtyNwK7f8lCfJQBzZd/BiTZk7lMLwQe4EAA8Ju/RvqqmDyKgf2VqlsnCZi4oJoR6gzVOTmIxDg==}
 
   '@forestrie/encoding@0.7.0':
     resolution: {integrity: sha512-3Q8s678bQa8J0RBv92jAjwQE0OTqV9vP8YxASoCB9LQt7VKQ1pxl6h0SvUlggY3RMEvBBLNBcXduh7Szx5r2DA==}
@@ -207,8 +207,8 @@ packages:
   '@forestrie/merklelog@0.3.0':
     resolution: {integrity: sha512-u2bFI8u2cW9uZij/x0aKBRT+asnpaqJCFMPGitQfOJSY8hGmNSbAP0LuFDVO9mtB2M/Ata/lABBur49g5ZxfcA==}
 
-  '@forestrie/receipt-verify@1.0.0':
-    resolution: {integrity: sha512-ygL2tvo4FgJVJPPOA6c2dd6CwcpTf1G1RAbP2MldQ1NWhhReXe1bGtjkZHVZl+37csvSNrq6YTQTPmbOgOjcGQ==}
+  '@forestrie/receipt-verify@1.1.0':
+    resolution: {integrity: sha512-QN9btyw94eSF+j/3F5TMEhvTgLlqkxWBgvI8Thm+N1n30po5cQeS7kCtEQWZhym54zEGO+cCxQxQMsmvsih50w==}
 
   '@hono/node-server@2.1.1':
     resolution: {integrity: sha512-ELuehkj5VCBdgEw9zs+ivkKwyzzUCSQuE96YmiPvn1ECBoZCczbFXJLeEGMTYjphP6gydh4pHMqEYPVMYUVgQg==}
@@ -1086,7 +1086,7 @@ snapshots:
   '@esbuild/win32-x64@0.25.12':
     optional: true
 
-  '@forestrie/chain-rpc@0.2.0': {}
+  '@forestrie/chain-rpc@0.3.0': {}
 
   '@forestrie/encoding@0.7.0':
     dependencies:
@@ -1094,9 +1094,9 @@ snapshots:
 
   '@forestrie/merklelog@0.3.0': {}
 
-  '@forestrie/receipt-verify@1.0.0':
+  '@forestrie/receipt-verify@1.1.0':
     dependencies:
-      '@forestrie/chain-rpc': 0.2.0
+      '@forestrie/chain-rpc': 0.3.0
       '@forestrie/encoding': 0.7.0
       '@forestrie/merklelog': 0.3.0
       '@noble/hashes': 1.8.0
