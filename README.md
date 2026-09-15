@@ -112,7 +112,7 @@ circular one. See [docs/self-registration.md](docs/self-registration.md).
 
 ## Registry
 
-Once phase 3 lands, this server is listed as `dev.forestrie/verify` in the
+This server is listed as `dev.forestrie/verify` in the
 [official MCP registry](https://registry.modelcontextprotocol.io).
 
 ## Development
