@@ -30,7 +30,7 @@ name: Publish
 # - `pnpm test` runs BEFORE build, and it chains check:browser-safe and
 #   check:encoding-single-copy, so a purity regression cannot be published.
 #
-# plan-2609-02 step 2.3 — release-time self-registration:
+# Release-time self-registration:
 # - Between Build and Pack, `scripts/self-register.mjs` writes
 #   provenance.json, signs it, delegates sealing on the publications log
 #   (`forestrie delegate`, so registration never depends on a standing
@@ -42,7 +42,7 @@ name: Publish
 #   for the secrets/vars table and the two-root loop this closes.
 # - A `rehearsal` workflow_dispatch input runs the SAME real registration
 #   step (against whatever lane FORESTRIE_BASE_URL names) and Pack, but
-#   skips `npm publish` — plan-2609-02 step 2.6's lane-A dry run. It is not
+#   skips `npm publish` — a dry run of the release. It is not
 #   the same thing as the script's own `--dry-run` flag (local stubs, no
 #   network at all), which is the separate offline gate `pnpm test`-adjacent
 #   tooling exercises.
@@ -58,7 +58,7 @@ name: Publish
 #   stall at this step until someone re-delegated by hand. The script now
 #   delegates a fresh 24-hour lease itself, every run, before registering.
 #
-# plan-2609-02 step 3.3 — registry listing:
+# Registry listing:
 # - After a successful `npm publish`, `mcp-publisher publish` lists
 #   dev.forestrie/verify (server.json) with the official MCP registry
 #   (registry.modelcontextprotocol.io). This is additive to the npm publish
@@ -69,7 +69,7 @@ name: Publish
 #   workflow, computed by hand from the v1.8.1 release asset and recorded in
 #   the PR that added this block.
 # - DNS ownership (`login dns --domain forestrie.dev`) requires the apex TXT
-#   record on forestrie.dev to already exist (plan-2609-02 step 3.2) and the
+#   record on forestrie.dev to already exist and the
 #   MCP_PUBLISHER_DNS_PRIVATE_KEY secret to be set in the npm-publish
 #   environment — both are one-time, owner-side setup; login fails closed
 #   until then.
@@ -84,7 +84,7 @@ on:
         description: >-
           Rehearse the release path without publishing: registration and
           packaging run for real against FORESTRIE_BASE_URL, but `npm
-          publish` is skipped (plan-2609-02 step 2.6).
+          publish` is skipped.
         type: boolean
         default: false
   push:
@@ -148,18 +148,15 @@ jobs:
       - name: Test
         # Chains check:browser-safe && check:encoding-single-copy &&
         # check:server-json before vitest. This is what makes all three
-        # gates release gates, not advisory — plan-2609-02 step 3.3 added
-        # check:server-json so a version bump can never leave server.json
-        # behind.
+        # gates release gates, not advisory; check:server-json means a version
+        # bump can never leave server.json behind.
         run: pnpm test
 
       - name: Build
         run: pnpm build
 
       - name: Register provenance in the Forestrie log
-        # plan-2609-02 step 2.3. Writes provenance.json = {name, version,
-        # gitCommit, builtAt} (serverJsonSha256 is deferred to phase 3 —
-        # AGENTS.md forbids server.json before the DNS record lands), signs
+        # Writes provenance.json = {name, version, gitCommit, builtAt}, signs
         # it with `forestrie sign-statement`, delegates sealing on the
         # publications log with `forestrie delegate --ttl-seconds 86400`
         # (found 2026-09-13: standing delegations expire after 6h, so every
@@ -186,7 +183,7 @@ jobs:
         run: pnpm pack
 
       - name: Publish to npmjs (trusted publishing)
-        # Skipped for a `rehearsal` dispatch (plan-2609-02 step 2.6): every
+        # Skipped for a `rehearsal` dispatch: every
         # step up to and including Pack still ran for real, so the rehearsal
         # proves registration and packaging without shipping anything.
         # --provenance is explicit as well as set in publishConfig, so a
@@ -194,7 +191,7 @@ jobs:
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.rehearsal) }}
         run: npm publish --provenance ./forestrie-mcp-verify-*.tgz
 
-      # plan-2609-02 step 3.3 — list dev.forestrie/verify with the official
+      # List dev.forestrie/verify with the official
       # MCP registry, after the npm publish it depends on (ownership
       # verification reads package.json#mcpName from the just-published
       # tarball). Same guard as the npm Publish step above: a rehearsal
@@ -227,10 +224,9 @@ jobs:
           chmod +x ./mcp-publisher
 
       - name: mcp-publisher login (DNS)
-        # Requires the apex TXT record on forestrie.dev (plan-2609-02 step
-        # 3.2, owner + O) and the MCP_PUBLISHER_DNS_PRIVATE_KEY secret in the
-        # npm-publish environment (owner to create; does not exist yet as of
-        # this PR). Fails closed until both exist.
+        # Requires the apex TXT record on forestrie.dev and the
+        # MCP_PUBLISHER_DNS_PRIVATE_KEY secret in the npm-publish environment.
+        # Fails closed without either.
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.rehearsal) }}
         run: ./mcp-publisher login dns --domain forestrie.dev --private-key "$MCP_PUBLISHER_DNS_PRIVATE_KEY"
         env:

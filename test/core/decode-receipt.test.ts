@@ -113,7 +113,7 @@ describe("decodeReceipt — failures name the stage that rejected the input", ()
 });
 
 /**
- * Regression guard for plan-2609-02 step P5.5: delegating decode_receipt's
+ * Regression guard: delegating decode_receipt's
  * rendering to `@forestrie/forestrie-cli`'s published decoder was tried
  * twice and reverted twice.
  *

@@ -1,6 +1,6 @@
 /**
- * `verify --self` — the CLI narration for `verifySelf`, over `fixtures/self/`
- * (plan-2609-02 step 2.5). Same shape as `demo.ts`: everything printed goes
+ * `verify --self` — the CLI narration for `verifySelf`, over `fixtures/self/`.
+ * Same shape as `demo.ts`: everything printed goes
  * through the caller's writer, never `console`, so `cli.ts` can guarantee
  * stdio mode writes nothing to stdout but MCP frames.
  *

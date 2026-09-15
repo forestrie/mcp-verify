@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * plan-2609-02 step 3.3 — the registry-listing version guard.
+ * The registry-listing version guard.
  *
  * server.json's `version` (and `packages[0].version`) cannot be read from
  * package.json at build time — it is a static file the MCP registry fetches
@@ -22,8 +22,8 @@
  * characters and requires a non-empty description; mcp-publisher only finds
  * that out at publish time with a 422, after `npm publish` has already
  * shipped the version — that is exactly what happened to
- * @forestrie/mcp-resolve's v0.1.1 (plan-2609-05 phase 3). Fail here instead,
- * before a version is ever published (plan-2609-07 step 3.1).
+ * @forestrie/mcp-resolve's v0.1.1. Fail here instead, before a version is
+ * ever published.
  *
  * Wired into both `pnpm test` (ci.yml) and publish.yml's guard step, exactly
  * like scripts/assert-publish-version.sh and check-encoding-single-copy.mjs.
@@ -77,8 +77,7 @@ export function checkServerJson(pkg, server) {
   // The registry schema (2025-12-11) caps `description` and `title` at 100
   // characters and requires a non-empty description; mcp-publisher only
   // finds out at publish time with a 422, after `npm publish` has already
-  // shipped the version (@forestrie/mcp-resolve v0.1.1, plan-2609-05 phase
-  // 3). Fail here instead.
+  // shipped the version (@forestrie/mcp-resolve v0.1.1). Fail here instead.
   if (
     typeof server.description !== "string" ||
     server.description.length === 0

@@ -23,10 +23,10 @@ point of calling them frozen.
 
 | File | What it is |
 |---|---|
-| `golden/manifest.json` | FOR-289 manifest. `genesisSha256` / `receiptSha256` are the pin; `logId` + `grantDataHex` + `idtimestampBe8Hex` are what the committed grant is reconstructed from. Copied **verbatim** — do not reformat. |
+| `golden/manifest.json` | Golden conformance manifest. `genesisSha256` / `receiptSha256` are the pin; `logId` + `grantDataHex` + `idtimestampBe8Hex` are what the committed grant is reconstructed from. Copied **verbatim** — do not reformat. |
 | `golden/grant-genesis.cbor` | 160 B forest-genesis document (schema v2, ES256 bootstrap key). The `genesis` root. |
 | `golden/grant-receipt.cbor` | 118 B COSE receipt over a grant leaf. **Detached payload** — the signature covers the MMR peak, which is why the stage collapse in `docs/trust-roots.md` happens at all. |
-| `golden/burial/manifest.json` | FOR-368 burial-bundle manifest: public key, leaf, buried peak, final accumulator, per-checkpoint digests. |
+| `golden/burial/manifest.json` | Burial-bundle manifest: public key, leaf, buried peak, final accumulator, per-checkpoint digests. |
 | `golden/burial/burial-receipt.cbor` | A receipt whose peak the log has since buried. |
 | `golden/burial/sth-000{0..3}.cbor` | The retained `.sth` checkpoint chain that re-anchors it. |
 
@@ -59,10 +59,10 @@ manifests agree, which is the point.
 
 ## The self-registration bundle is a different thing, elsewhere
 
-`fixtures/self/` (this package's own release-time self-registration bundle,
-plan-2609-02 step 2.3) is **generated and gitignored** — never committed, so
+`fixtures/self/` (this package's own release-time self-registration bundle)
+is **generated and gitignored** — never committed, so
 there is nothing under it for this file to describe provenance for. What
-`verify_self` / `verify --self` (steps 2.4/2.5) are tested against instead is
+`verify_self` / `verify --self` are tested against instead is
 a REAL bundle captured once and frozen for tests at
 [`test/fixtures/self-bundle/`](../test/fixtures/self-bundle/), with its own
 provenance record at

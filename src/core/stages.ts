@@ -50,7 +50,7 @@ export const ANCHORED_SIGNATURE_REASON =
  *
  * A stage this package does not know (a future `@forestrie/receipt-verify`
  * addition) still renders explicitly as the failed row — degrading it to four
- * silent "skipped" rows would HIDE the failure (F3, plan-2607-14 W1.3). We
+ * silent "skipped" rows would HIDE the failure. We
  * cannot order an unknown stage among the known ones, so the known stages
  * read "skipped" (not evaluated by this package's knowledge) and the unknown
  * stage carries the failure. Do not "simplify" this branch away.
@@ -86,7 +86,7 @@ export function stageRows(result: ReceiptVerifyResult): StageRow[] {
   });
 }
 
-/** Stage rows for a run anchored on a caller-known log key (FOR-297 D1). */
+/** Stage rows for a run anchored on a caller-known log key. */
 export function knownKeyStageRows(result: ReceiptVerifyResult): StageRow[] {
   return stageRows(result).map((row) => {
     if (row.status !== "ok") return row;

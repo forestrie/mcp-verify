@@ -8,8 +8,7 @@
  * `pnpm run check:stdio-clean`.
  *
  * This file runs under the forbidden-fetch global, so it is simultaneously
- * the D2(b) proof at the MCP layer — which is where D2 asks for it, "for
- * every tool call".
+ * the no-network proof at the MCP layer, for every tool call.
  */
 import { readFileSync } from "node:fs";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -66,9 +65,8 @@ describe("initialize", () => {
 });
 
 describe("tools/list", () => {
-  it("returns exactly the three phase-1 tools", async () => {
+  it("returns exactly the four tools", async () => {
     const { tools } = await client.listTools();
-    // Four, since plan-2609-02 step 2.4 added verify_self.
     expect(tools.map((t) => t.name).sort()).toEqual([
       "decode_receipt",
       "verify_grant_receipt",
@@ -165,7 +163,7 @@ describe("tools/call — a real verification over the bundled fixtures", () => {
     expect(content[0]?.type).toBe("text");
     expect(content[0]?.text.length).toBeGreaterThan(0);
     // Never a bare "valid": the summary names the root and the unanswered
-    // questions, which is the whole D3 point.
+    // questions, which is the whole point.
     expect(content[0]?.text).toContain("root=genesis");
     expect(content[0]?.text).toContain("split-view not answered at this root");
   });

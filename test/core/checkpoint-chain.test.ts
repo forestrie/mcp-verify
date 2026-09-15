@@ -1,5 +1,5 @@
 /**
- * The checkpoint-chain root, over the FOR-368 burial bundle.
+ * The checkpoint-chain root, over the golden burial bundle.
  *
  * What this root does: fold the retained `.sth` chain from its boundary base,
  * verifying each link's signature over the accumulator its own consistency

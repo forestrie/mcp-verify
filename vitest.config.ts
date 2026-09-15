@@ -13,7 +13,7 @@ export default defineConfig({
           name: "unit",
           environment: "node",
           include: ["test/core/**/*.test.ts", "test/node/**/*.test.ts"],
-          // D2(b): every test in this project runs with a fetch that throws.
+          // Every test in this project runs with a fetch that throws.
           setupFiles: ["./test/setup/forbidden-fetch.ts"],
         },
       },

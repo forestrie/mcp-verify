@@ -117,8 +117,7 @@ export async function verifyGrantReceipt(
   } catch (err) {
     // The MCP layer validates its own inputs rather than trusting the
     // reference to fail cleanly: forestrie-cli crashes with an uncaught stack
-    // trace when the committed grant is missing, even under --json
-    // (plan-2609-02 "What changed on contact" 3).
+    // trace when the committed grant is missing, even under --json.
     if (err instanceof VerifyInputError) {
       return inputFailureResult(root, "grant", err.message);
     }

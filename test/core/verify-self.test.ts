@@ -1,5 +1,5 @@
 /**
- * `verifySelf` over the frozen real bundle (plan-2609-02 steps 2.4/2.5).
+ * `verifySelf` over the frozen real bundle.
  *
  * `test/fixtures/self-bundle/PROVENANCE.md` records what was verified at
  * capture with the `forestrie` CLI: `--payload statement.cose` PASSES,

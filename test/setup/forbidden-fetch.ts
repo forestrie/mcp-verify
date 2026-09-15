@@ -1,7 +1,7 @@
 import { afterAll, beforeAll } from "vitest";
 
 /**
- * D2(b): the verify path is pure over bytes (P2). Any fetch under any tool
+ * The verify path is pure over bytes. Any fetch under any tool
  * call is a bug, not a slow test — so the whole unit project runs with a
  * fetch that throws, rather than forestrie-cli's per-call swap
  * (forestrie-cli/test/verify.test.ts:67-70).

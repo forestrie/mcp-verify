@@ -1,8 +1,7 @@
 /**
  * `scripts/assert-server-json.mjs`'s `checkServerJson` — the registry-listing
  * version guard plus the registry schema's 100-character caps on
- * `description` and `title` (plan-2609-07 step 3.1, ported from
- * `@forestrie/mcp-resolve`).
+ * `description` and `title` (ported from `@forestrie/mcp-resolve`).
  *
  * The script lives under `scripts/`, not `src/`, so it is exercised directly
  * via dynamic import rather than through the package's public surface, the

@@ -1,6 +1,6 @@
 /**
- * `verify --self` and the `verify_self` MCP tool, over a REAL bundle
- * (plan-2609-02 steps 2.4/2.5) — the frozen `test/fixtures/self-bundle/`
+ * `verify --self` and the `verify_self` MCP tool, over a REAL bundle —
+ * the frozen `test/fixtures/self-bundle/`
  * copied into a private, disposable directory.
  *
  * A private directory rather than the real `fixtures/self/`: that path is

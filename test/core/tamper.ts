@@ -1,12 +1,12 @@
 /**
- * The six tamper variants, generated in-test and never committed as files
- * (plan-2609-02 Phase 1 step 4). Committed tamper fixtures rot: they encode
+ * The six tamper variants, generated in-test and never committed as files.
+ * Committed tamper fixtures rot: they encode
  * one byte offset of one build of one encoder, and the day the encoder moves
  * they test nothing while still passing.
  *
  * Each variant answers a different question — "what if the signature is
  * wrong", "what if the proof is wrong", "what if the committed thing is
- * wrong" — and the point of D3 is that under a signature root the arithmetic
+ * wrong" — and the point is that under a signature root the arithmetic
  * cannot tell those apart.
  */
 import {

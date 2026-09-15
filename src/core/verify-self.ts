@@ -1,5 +1,5 @@
 /**
- * `verify_self` / `verify --self` (plan-2609-02 step 2.4): does THIS
+ * `verify_self` / `verify --self`: does THIS
  * package's own release-time self-registration receipt actually vouch for
  * the bytes it ships?
  *
@@ -73,7 +73,7 @@ export type SelfProvenance = {
 };
 
 /**
- * D3's result, extended with what `verify_self` alone checks: whether
+ * The verify result, extended with what `verify_self` alone checks: whether
  * `statement.cose` actually signs the `provenance.json` bytes supplied, and
  * whether that signature holds under the bundled log key. Everything else
  * (`stages`, `questions`, `diagnostics`, `root`) is the same result shape

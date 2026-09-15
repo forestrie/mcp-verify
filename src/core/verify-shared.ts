@@ -74,7 +74,7 @@ export async function importKnownLogKey(
 /**
  * Is the receipt's COSE payload detached?
  *
- * The condition that makes D3's stage collapse possible: a detached payload
+ * The condition that makes the stage collapse possible: a detached payload
  * means the signature covers the MMR peak, which is only knowable after
  * recomputing it from leaf + path. Returns `undefined` when the receipt does
  * not parse at all — there is then nothing to be detached.
@@ -344,7 +344,7 @@ export type AssembleInput = {
   anchor?: AnchorReport | undefined;
 };
 
-/** Build the D3 result from the mechanical verdict plus the root context. */
+/** Build the result from the mechanical verdict plus the root context. */
 export function assembleResult(input: AssembleInput): VerifyResult {
   const anchoredRoot = rootAnswersSplitView(input.root);
   const rows =
@@ -385,8 +385,7 @@ export function assembleResult(input: AssembleInput): VerifyResult {
  * A result for an input that never reached the arithmetic — a root whose
  * bytes did not decode, say. Reported as a clean `parse` failure rather than
  * a thrown stack trace, because the `forestrie` CLI's habit of
- * crashing on a missing required argument (plan-2609-02 "What changed on
- * contact" 3) is exactly what this layer exists not to reproduce.
+ * crashing on a missing required argument is exactly what this layer exists not to reproduce.
  */
 export function inputFailureResult(
   root: RootName,
@@ -403,7 +402,7 @@ export function inputFailureResult(
 
 /**
  * The sentence a human reads in an agent transcript. It must never be a bare
- * "valid" (D3): the anchor and the unanswered questions are the point.
+ * "valid": the anchor and the unanswered questions are the point.
  *
  * `verify-grant: FAILED at signature (signature_invalid) · root=genesis · sealing failed, split-view not answered at this root`
  */
