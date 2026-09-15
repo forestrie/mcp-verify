@@ -111,12 +111,24 @@ thing they exist to prevent. This file's own label tables track the
 authoritative registry:
 [forestrie/protocol `spec/label-registry.md`](https://github.com/forestrie/protocol/blob/main/spec/label-registry.md).
 
-**Revisit delegating once the two tables agree textually** — the fix belongs
-upstream of both, in that registry, then in `forestrie-cli`, then here as a
-change that says it is changing rendered output. On that day, re-run
-`check:encoding-single-copy` and `check:browser-safe` (the CLI pins
-`encoding ^0.7.0`, so it _should_ dedupe to our exact 0.7.0 — verify, do not
-assume), and keep the label tests.
+**Revisit delegating once the two tables agree textually.** The fix belongs
+upstream of both: settle the wording in that registry, land it in
+`forestrie-cli`, then adopt it here in a change that says it is changing
+rendered output. That change is:
+
+1. `pnpm add -E @forestrie/forestrie-cli@<version>`, an exact pin like the
+   others.
+2. Replace the implementation in `src/core/decode-receipt.ts` with a
+   re-export from `@forestrie/forestrie-cli/decode-receipt`.
+3. Run `pnpm run check:encoding-single-copy`. It must still find one copy of
+   `@forestrie/encoding`. If it does not, fix the pin; never add an override.
+4. Run `pnpm run check:browser-safe`, which proves the subpath stays
+   runtime-neutral in this package's module graph.
+5. Run the two label-name tests in `test/core/decode-receipt.test.ts`
+   unchanged. If they fail, the swap still changes output: stop and say so
+   rather than editing the expectations.
+6. Keep the differential test, and accept that its decode comparison then
+   compares one implementation with itself.
 
 We do **not** vendor code from other repos into this tree. This file is not
 vendoring `forestrie-cli`'s source — it is an independent implementation

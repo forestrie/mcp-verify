@@ -62,9 +62,8 @@
  * ([forestrie/protocol `spec/label-registry.md`](https://github.com/forestrie/protocol/blob/main/spec/label-registry.md)),
  * land it in `forestrie-cli`, then adopt the strings here in a change that
  * says it is changing rendered output — after which this file becomes the
- * re-export it was always meant to be. See `docs/dependency-surface.md` for
- * the checklist (encoding-single-copy, browser-safe, the label-name tests,
- * the differential test).
+ * re-export it was always meant to be. The checklist for that change is in
+ * `AGENTS.md`.
  *
  * Note also what delegating costs: the differential test's decode row
  * compares this renderer against the CLI's. Delegate, and both sides run the

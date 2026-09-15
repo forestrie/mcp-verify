@@ -12,9 +12,7 @@
  *    identically everywhere `node` does.
  * 2. It is literally what an outside auditor runs (`npx -y
  *    @forestrie/forestrie-cli`) — the neutrality property the whole plan is
- *    about — and it is now on the same `@forestrie/receipt-verify` (1.0.0)
- *    and `@forestrie/encoding` (0.7.0) as this package, so the version-skew
- *    triage row this file's docs used to carry no longer applies.
+ *    about.
  * 3. A checksum sidecar is no longer available (npm packages are not
  *    sha256-sidecarred the way GitHub release assets are), so the pin is now
  *    the exact, deliberately-bumped `FORESTRIE_CLI_VERSION` below, resolved

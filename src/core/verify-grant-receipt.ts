@@ -5,6 +5,13 @@
  * commitment preimage differs — a payload receipt commits `SHA-256(payload)`,
  * a grant receipt commits the grant commitment hash — and mirroring the
  * reference CLI 1:1 buys a free differential test.
+ *
+ * Under the known-accumulator root the two differ only in the leaf hash.
+ * `@forestrie/receipt-verify` has one
+ * `verifyReceiptOfflineAgainstKnownAccumulator` for both receipt kinds, and
+ * the caller supplies the leaf's inner hash: `SHA-256(payload)` for a payload
+ * receipt, `grantCommitmentHashFromGrant(grant)` for a grant receipt. There
+ * is no grant-specific entry point.
  */
 import {
   decodeForestrieGrantCose,

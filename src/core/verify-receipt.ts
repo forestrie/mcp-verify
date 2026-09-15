@@ -3,6 +3,9 @@
  * the generic, SCITT-compatible path: the leaf commits
  * `SHA-256(idtimestamp ‖ SHA-256(payload))` and the caller passes the EXACT
  * registered payload bytes.
+ *
+ * Why this and `verify-grant-receipt.ts` are separate functions: see that
+ * file's header.
  */
 import {
   decodeTrustRootFromGenesis,

@@ -7,30 +7,9 @@
  * names: `ok`, `stage`, `reason`, `stages`. `questions`, `diagnostics` and
  * `verifier` are ours alone and are not compared.
  *
- * ## When a cell disagrees
- *
- * A disagreement is a FINDING, not a test bug. Triage it as one of:
- *
- *   - **our bug** — fix our code;
- *   - **CLI bug** — pin the expectation here with a comment naming the bug,
- *     and file it.
- *
- * The reference CLI is on the same `@forestrie/receipt-verify` (1.0.0) and
- * `@forestrie/encoding` (0.7.0) as this package from `@forestrie/forestrie-cli
- * @0.8.0` onward, so the version-skew triage row this file used to carry is
- * retired.
- *
- * Never silently loosen an assertion. `docs/differential-test.md` carries the
- * full procedure and the current pinned divergences.
- *
- * ## Cases deliberately NOT in the matrix
- *
- * `verify-grant` with neither `--committed-grant` nor `--committed-grant-file`
- * crashes with an uncaught stack trace, even under `--json`
- * (forestrie-cli `src/options/verify.ts`, cited in plan-2609-02 "What changed
- * on contact" 3). Comparing against a stack trace proves nothing; our own
- * clean validation error is asserted in `test/core/verify-grant-receipt.test.ts`
- * instead, and the CLI bug is filed separately.
+ * What is and is not compared, how to triage a disagreement, and how to move
+ * the pin: docs/differential-test.md. A disagreement is a finding, not a test
+ * bug. Never silently loosen an assertion.
  */
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
