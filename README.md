@@ -78,11 +78,6 @@ cannot distinguish, and the demo transcript:
 
 Which is why this repo goes to some trouble to make that re-running possible:
 
-- **A differential test** against the published `@forestrie/forestrie-cli`
-  npm package, pinned at an exact version. For every tamper variant under both
-  signature roots, our `ok`, `stage`, `reason` and `stages[]` must equal the
-  reference's byte for byte. Currently 18 tests, zero disagreements. See
-  [docs/differential-test.md](docs/differential-test.md).
 - **Frozen conformance vectors**, sha256-pinned to their manifest, shipped
   inside the tarball. See [fixtures/PROVENANCE.md](fixtures/PROVENANCE.md).
 - **`files` includes `src`.** The package that asks you to trust its
@@ -91,8 +86,8 @@ Which is why this repo goes to some trouble to make that re-running possible:
   `npm ls` and `npm audit signatures` both see the real graph. Bundling would
   hide `@forestrie/receipt-verify`'s own SLSA attestation behind ours.
 
-The verification itself is `@forestrie/receipt-verify@1.0.0`, which is
-published, MIT, and SLSA-attested independently of this package.
+The verification itself is `@forestrie/receipt-verify`, pinned to an exact
+version, published, MIT, and SLSA-attested independently of this package.
 `decode_receipt`'s rendering stays a local implementation — over the same
 published packages, against the same public
 [label registry](https://github.com/forestrie/protocol/blob/main/spec/label-registry.md) —
@@ -100,10 +95,15 @@ rather than a dependency on `@forestrie/forestrie-cli`, whose published
 decoder is otherwise a drop-in. Delegating to it has been tried twice and
 reverted twice: the two label tables still name some codepoints with
 different text, and that text is output the tool prints, so adopting it is a
-deliberate change to what you see rather than a dependency bump. The
-consolation is that it keeps the differential test's decode comparison
-honest — two independent renderers that agree, rather than one compared with
-itself. See [docs/dependency-surface.md](docs/dependency-surface.md).
+deliberate change to what you see rather than a dependency bump. See
+[AGENTS.md](AGENTS.md).
+
+Installing the package pulls in more than a verifier needs.
+`@modelcontextprotocol/sdk` brings a web stack, including express, hono,
+jose, cors and ajv, for HTTP transports this package never uses: it
+constructs only the stdio transport. The verification core never imports
+the SDK, and the browser-safety gate enforces that, so importing the
+package's `"."` export gives you the arithmetic without any of it.
 
 At release time, this package also registers its own provenance in a
 Forestrie log and ships the receipt inside the tarball — two independent
@@ -121,13 +121,10 @@ Once phase 3 lands, this server is listed as `dev.forestrie/verify` in the
 mise install           # node 22.14.0, pnpm 10.6.5
 pnpm install
 pnpm test              # browser-safe gate + encoding-copy gate + server.json gate + unit tests
-pnpm test:differential # npm-installs the pinned forestrie CLI version
 pnpm build
 ```
 
 Conventions, invariants and the release checklist: [AGENTS.md](AGENTS.md).
-Dependency surface and install weight:
-[docs/dependency-surface.md](docs/dependency-surface.md).
 
 ## Licence
 

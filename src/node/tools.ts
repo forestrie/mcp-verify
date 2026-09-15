@@ -7,7 +7,7 @@
  * `z.toJSONSchema()` at the call site. It wants a **raw shape**
  * (`{ key: ZodType }`) rather than a `ZodObject`, which is also what types the
  * handler's argument correctly, so composite types live as property values.
- * See docs/dependency-surface.md §3; test/node/mcp-smoke.test.ts keeps it true.
+ * test/node/mcp-smoke.test.ts keeps it true.
  */
 import { z } from "zod";
 

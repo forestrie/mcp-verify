@@ -1,5 +1,5 @@
 /**
- * D2: the trust root is an INPUT UNION, mirroring the reference CLI's flag
+ * D2: the trust root is an INPUT UNION, mirroring the `forestrie` CLI's flag
  * presence (`forestrie-cli/src/options/verify.ts` selects the same four by
  * flag; the roots are not ordered by strength — there are two families,
  * signature roots and accumulator roots). You do not ask for "verification";

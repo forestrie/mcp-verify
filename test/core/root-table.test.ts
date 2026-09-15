@@ -14,8 +14,8 @@
  *    `{stage: "signature", reason: "peak_not_in_known_accumulator"}` even
  *    though no signature was evaluated. The D3 SEPARATION is real and is
  *    asserted below — it just lives in `reason` and in `questions`, not in
- *    the stage name. Passed through verbatim so `stages[]` stays comparable
- *    with the reference CLI. Diagnostic:
+ *    the stage name. Passed through verbatim so `stages[]` keeps the
+ *    `forestrie` CLI's contract. Diagnostic:
  *    `accumulator_failure_reported_at_signature_stage`.
  *
  * 2. **A flipped signature byte PASSES at the accumulator root.** The plan's

@@ -1,26 +1,21 @@
 /**
- * Shared npm-install resolution for the reference `@forestrie/forestrie-cli`.
+ * npm-install resolution for `@forestrie/forestrie-cli`, which
+ * `scripts/self-register.mjs` runs at release time (delegate,
+ * sign-statement, register).
  *
- * Two consumers need "the pinned reference CLI, resolved from npm, run under
- * plain `node`": `scripts/self-register.mjs` (release-time
- * delegate/sign-statement/register) and `test/differential/cli-binary.ts`
- * (the differential test's reference client). Before this file, each had its
- * own copy of the install-and-cache logic; `self-register.mjs` additionally
- * carried a now-removed sha256-pinned GitHub-release binary downloader. One
- * pinned version and one cache layout here means a version bump is a single
- * edit, not two — the same "no duplicate source of truth" discipline
- * AGENTS.md asks of `@forestrie/*` dependency pins generally.
+ * The CLI is installed from npm at the exact `FORESTRIE_CLI_VERSION` below,
+ * into a version-keyed cache, and run under plain `node`: no Bun, no
+ * per-platform binary, and npm's registry integrity check on install.
  *
  * `--no-save --prefix` never touches this repo's own `package.json` or pnpm
  * lockfile: `@forestrie/forestrie-cli` is not, and must not become, a
- * dependency of this package. See docs/differential-test.md for why npm and
- * not a source checkout or a downloaded binary.
+ * dependency of this package.
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-/** Bump deliberately; see docs/differential-test.md. */
+/** Bump deliberately: every release registers its provenance with it. */
 export const FORESTRIE_CLI_VERSION = "0.8.1";
 
 /** The version-keyed scratch install root under `repoRoot`. */

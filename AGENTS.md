@@ -111,18 +111,27 @@ thing they exist to prevent. This file's own label tables track the
 authoritative registry:
 [forestrie/protocol `spec/label-registry.md`](https://github.com/forestrie/protocol/blob/main/spec/label-registry.md).
 
-**Revisit delegating once the two tables agree textually** — the fix belongs
-upstream of both, in that registry, then in `forestrie-cli`, then here as a
-change that says it is changing rendered output. On that day, re-run
-`check:encoding-single-copy` and `check:browser-safe` (the CLI pins
-`encoding ^0.7.0`, so it _should_ dedupe to our exact 0.7.0 — verify, do not
-assume), and keep the label tests.
+**Revisit delegating once the two tables agree textually.** The fix belongs
+upstream of both: settle the wording in that registry, land it in
+`forestrie-cli`, then adopt it here in a change that says it is changing
+rendered output. That change is:
+
+1. `pnpm add -E @forestrie/forestrie-cli@<version>`, an exact pin like the
+   others.
+2. Replace the implementation in `src/core/decode-receipt.ts` with a
+   re-export from `@forestrie/forestrie-cli/decode-receipt`.
+3. Run `pnpm run check:encoding-single-copy`. It must still find one copy of
+   `@forestrie/encoding`. If it does not, fix the pin; never add an override.
+4. Run `pnpm run check:browser-safe`, which proves the subpath stays
+   runtime-neutral in this package's module graph.
+5. Run the two label-name tests in `test/core/decode-receipt.test.ts`
+   unchanged. If they fail, the swap still changes output: stop and say so
+   rather than editing the expectations.
 
 We do **not** vendor code from other repos into this tree. This file is not
-vendoring `forestrie-cli`'s source — it is an independent implementation
+vendoring `forestrie-cli`'s source — it is a separately written implementation
 against the same public registry and the same published wire-format
-packages, which is why the differential test's `decode_receipt` comparison
-is meaningful rather than circular.
+packages.
 
 ## Nothing writes to stdout in stdio mode except the transport
 
@@ -157,8 +166,8 @@ Both are asserted in `test/core/root-table.test.ts` with comments. Read
    re-check the signature would destroy the separation the accumulator root exists to
    demonstrate.
 2. **The `known-accumulator` root reports failures as `stage=signature`.**
-   That is upstream's label, passed through verbatim so `stages[]` stays
-   comparable with the reference CLI. The separation lives in `reason` and in
+   That is upstream's label, passed through verbatim so `stages[]` keeps
+   the `forestrie` CLI's contract. The separation lives in `reason` and in
    `questions`.
 
 ## `stageRows`' unknown-stage branch
@@ -171,7 +180,6 @@ four silent "skipped" rows would **hide the failure**. Do not simplify it away.
 
 ```
 pnpm test              # check:browser-safe && check:encoding-single-copy && check:server-json && unit
-pnpm test:differential # npm-installs the pinned forestrie CLI version; see docs/
 pnpm typecheck
 pnpm format:check
 pnpm build
@@ -266,7 +274,7 @@ publish`. See `docs/self-registration.md`'s "Delegate before register"
 
 As of this change, the "Register provenance" step no longer downloads a
 `forestrie` CLI binary — it resolves `@forestrie/forestrie-cli@0.8.1` from
-npm, the same mechanism `test/differential/cli-binary.ts` uses.
+npm through `scripts/forestrie-cli-npm.mjs`.
 
 ## Links must resolve without org access
 

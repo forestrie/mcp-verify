@@ -14,7 +14,7 @@
  *
  * 1. The receipt's leaf commits to the SIGNED STATEMENT BYTES
  *    (`statement.cose`), not to the raw `provenance.json` — verified at
- *    capture with the reference CLI (see the frozen bundle's PROVENANCE.md):
+ *    capture with the `forestrie` CLI (see the frozen bundle's PROVENANCE.md):
  *    `--payload statement.cose` PASSES, `--payload provenance.json` reports
  *    `signature_invalid` (the familiar detached-payload-shaped collapse,
  *    except here it is the WRONG PAYLOAD, not a detached one). So step (a)

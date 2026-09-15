@@ -138,10 +138,10 @@ export type AnchoredOutcome = {
  * therefore fails HERE with `peak_not_in_known_accumulator`, where at the
  * genesis root it was indistinguishable from a bad signature.
  *
- * This is a deliberate divergence from `forestrie verify --known-accumulator`,
+ * This deliberately differs from `forestrie verify --known-accumulator`,
  * which runs the genesis/known-key offline verify FIRST and only then checks
  * the anchor, so its stage collapse survives into the accumulator check. See
- * docs/differential-test.md.
+ * docs/trust-roots.md.
  */
 export async function verifyAtKnownAccumulator(input: {
   receiptCbor: Uint8Array;
@@ -221,7 +221,7 @@ function makeCheckpointSignatureVerifier(
  * proofs commit an earlier accumulator forward, so burial never turns an
  * honest receipt tamper-shaped.
  *
- * Newest-first, mirroring the reference CLI: the freshest cover gives the
+ * Newest-first, mirroring the `forestrie` CLI: the freshest cover gives the
  * most useful report. Retention limits coverage, never validity, so a receipt
  * newer than the whole chain fails CLOSED with a refresh remedy.
  */
@@ -325,7 +325,7 @@ export async function verifyAtCheckpointChain(input: {
  * genesis-rooted `delegation_invalid` (wrong known key, or a forged cert).
  * Rename it so the operator reaches for "check the key you were given", not
  * "check the log's delegation". Ported from forestrie-cli's
- * `remapKnownKeyFailure` so the differential test agrees on the reason.
+ * `remapKnownKeyFailure`, so both report the same reason.
  */
 export function remapKnownKeyFailure(
   result: ReceiptVerifyResult,
@@ -384,7 +384,7 @@ export function assembleResult(input: AssembleInput): VerifyResult {
 /**
  * A result for an input that never reached the arithmetic — a root whose
  * bytes did not decode, say. Reported as a clean `parse` failure rather than
- * a thrown stack trace, because the reference implementation's habit of
+ * a thrown stack trace, because the `forestrie` CLI's habit of
  * crashing on a missing required argument (plan-2609-02 "What changed on
  * contact" 3) is exactly what this layer exists not to reproduce.
  */
