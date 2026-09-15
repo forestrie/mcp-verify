@@ -15,7 +15,7 @@ deliberate act, never a casual fix for a red test.
 | Licence | MIT (the `@forestrie/receipt-verify` package declares MIT) |
 
 The bytes are also identical to those at canopy
-`1f199e8c9156200c06f8f455e277e4b032663c52`, the commit the parent plan cites —
+`1f199e8c9156200c06f8f455e277e4b032663c52`, an earlier commit —
 the fixtures have not moved between those two commits, which is the whole
 point of calling them frozen.
 

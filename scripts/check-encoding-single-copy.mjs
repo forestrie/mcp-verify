@@ -2,8 +2,9 @@
 /**
  * Exactly one @forestrie/encoding in the tree.
  *
- * Several versions of @forestrie/encoding have coexisted in fresh installs
- * of the @forestrie estate. Two copies of a WIRE-TYPE package means two CBOR codecs, and a
+ * Three copies (0.7.0 / 0.6.0 / 0.5.0) have coexisted in a fresh install of
+ * the @forestrie estate. Two copies of a WIRE-TYPE package means two CBOR
+ * codecs, and a
  * verifier that disagrees with itself about the bytes is not a verifier.
  * This is a release gate, not a lint.
  *

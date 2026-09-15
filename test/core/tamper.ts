@@ -6,8 +6,8 @@
  *
  * Each variant answers a different question — "what if the signature is
  * wrong", "what if the proof is wrong", "what if the committed thing is
- * wrong" — and the point is that under a signature root the arithmetic
- * cannot tell those apart.
+ * wrong" — and under a signature root the arithmetic cannot tell those
+ * apart. That is what the root table demonstrates.
  */
 import {
   goldenCommittedGrant,
