@@ -199,8 +199,8 @@ function defaultRunCli(entry, args) {
  * `GET {baseUrl}/api/forest/{logId}/genesis` — the forest's kept-copy
  * genesis document, the same one `verify --genesis` expects for every log in
  * the forest, child data logs included (see docs/self-registration.md for
- * the evidence trail; this is the one open item the lane-A rehearsal, step
- * 2.6, must confirm — `FORESTRIE_LOG_ID` must be the forest's bootstrap log
+ * the evidence trail; confirmed for lane A, and the thing to re-check on any
+ * new lane — `FORESTRIE_LOG_ID` must be the forest's bootstrap log
  * id, not the publications log's own id, because that is the exact value
  * `forestrie register --log-id` already sends as the URL's bootstrap
  * segment).

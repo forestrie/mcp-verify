@@ -20,7 +20,7 @@
  * derived-but-fixed accumulator exercises it honestly.
  *
  * An independent snapshot would be strictly better and belongs in the shared
- * conformance vectors the parent plan schedules for `forestrie/protocol`.
+ * conformance vectors planned for `forestrie/protocol`.
  * Until those exist, this is the honest version, said out loud.
  *
  * The peak recompute itself lives in `src/core/peak.ts` — the package needs it

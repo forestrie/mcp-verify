@@ -1,7 +1,7 @@
 /**
  * The root table, as a test.
  *
- * The root table claims a specific thing about the same bytes at two
+ * The design claims a specific thing about the same bytes at two
  * different roots, and this file is that claim in executable form. Where the
  * runtime disagreed with the table as written, the RUNTIME WON and the
  * divergence is recorded below and in docs/trust-roots.md — a plan is a
@@ -18,7 +18,7 @@
  *    `forestrie` CLI's contract. Diagnostic:
  *    `accumulator_failure_reported_at_signature_stage`.
  *
- * 2. **A flipped signature byte PASSES at the accumulator root.** The plan's
+ * 2. **A flipped signature byte PASSES at the accumulator root.** The design
  *    table said "same" (a signature failure at both roots). It is not: this
  *    root evaluates no signature at all. The recomputed peak comes from leaf
  *    + inclusion path, both untouched by a signature flip, so it still
@@ -31,7 +31,7 @@
  *    restoring safety.
  *
  * 3. **Truncation and garbage report `receipt_malformed`, not a distinct
- *    reason each.** The plan only claimed `stage=parse` for both, which
+ *    reason each.** The design only claimed `stage=parse` for both, which
  *    holds.
  */
 import { describe, expect, it } from "vitest";

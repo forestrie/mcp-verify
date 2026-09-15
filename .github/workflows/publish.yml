@@ -69,10 +69,8 @@ name: Publish
 #   workflow, computed by hand from the v1.8.1 release asset and recorded in
 #   the PR that added this block.
 # - DNS ownership (`login dns --domain forestrie.dev`) requires the apex TXT
-#   record on forestrie.dev to already exist and the
-#   MCP_PUBLISHER_DNS_PRIVATE_KEY secret to be set in the npm-publish
-#   environment — both are one-time, owner-side setup; login fails closed
-#   until then.
+#   record on forestrie.dev and the MCP_PUBLISHER_DNS_PRIVATE_KEY secret in
+#   the npm-publish environment; login fails closed without either.
 # - Guarded by `if: ${{ !inputs.rehearsal }}`, exactly like the npm Publish
 #   step above: a rehearsal proves registration and packaging without
 #   shipping anything anywhere, npm or the MCP registry alike.

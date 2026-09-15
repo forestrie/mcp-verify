@@ -16,8 +16,7 @@
  * signature, the folded accumulator against the manifest's recorded value,
  * the peak-not-found verdict, and the missing-trust-root refusal. A positive
  * case needs a fixture that ships the leaf preimage alongside the chain, and
- * belongs in the shared conformance vectors the parent plan schedules for
- * `forestrie/protocol`.
+ * belongs in the shared conformance vectors planned for `forestrie/protocol`.
  */
 import { describe, expect, it } from "vitest";
 import {
