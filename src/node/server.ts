@@ -13,7 +13,7 @@
  * Every handler returns BOTH `structuredContent` (the full result) and a
  * one-line `content[0].text` summary. The summary is what a human reads in the
  * transcript, and it must never be a bare "valid" — it names the root and
- * which questions went unanswered (D3).
+ * which questions went unanswered.
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
@@ -323,7 +323,7 @@ export function createServer(): McpServer {
 
 /**
  * The bundled golden vectors as MCP resources, so an agent can run the demo
- * with no inputs of its own (D2). `registerSelfResources` below covers the
+ * with no inputs of its own. `registerSelfResources` below covers the
  * `forestrie://self/…` namespace, previously reserved but unregistered.
  */
 function registerFixtureResources(server: McpServer): void {
@@ -417,7 +417,7 @@ const SELF_FIXTURE_KINDS: Record<string, { mimeType: string; text: boolean }> =
  * `fixtures/self/` as `forestrie://self/…` MCP resources, when the bundle is
  * present — never when it is not (an unregistered namespace beats one that
  * resolves to nothing, `test/node/mcp-smoke.test.ts`). `fixtures/self/` is
- * generated and gitignored (plan-2609-02 step 2.3), so this is normally a
+ * generated and gitignored, so this is normally a
  * no-op outside a release checkout.
  */
 function registerSelfResources(server: McpServer): void {
@@ -432,7 +432,7 @@ function registerSelfResources(server: McpServer): void {
         title: `Self-registration bundle: ${name}`,
         description:
           "This package's own release-time self-registration artefact " +
-          "(plan-2609-02 step 2.3) — what verify_self / verify --self " +
+          "— what verify_self / verify --self " +
           "checks. See docs/self-registration.md.",
         mimeType: kind.mimeType,
       },

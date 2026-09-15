@@ -73,7 +73,7 @@ export const TrustRootSchema = z
           "Answers split-view. Needs genesis or keyXy to root the first link.",
       ),
   ])
-  .describe("Which anchor you are willing to trust (plan-2609-02 D2/D3)");
+  .describe("Which anchor you are willing to trust");
 
 /* ---------------------------- inputs ---------------------------- */
 
@@ -180,7 +180,7 @@ const AnchorSchema = z.object({
 });
 
 /**
- * The D3 result. `stages` and `questions` are BOTH here on purpose: the first
+ * The verify result. `stages` and `questions` are BOTH here on purpose: the first
  * is the mechanical verdict, the second is what that verdict is evidence for.
  * A client that renders only `ok` is using this tool wrong, and the
  * descriptions say so.
@@ -221,7 +221,7 @@ export const verifyOutputShape = {
 };
 
 /**
- * `verify_self`'s result: the D3 shape above, plus what only this tool
+ * `verify_self`'s result: the verify result above, plus what only this tool
  * checks — whether `statement.cose`'s signed payload is byte-for-byte the
  * `provenance.json` in the bundle, and whether that signature verifies under
  * the bundled log key. `provenance` is `null` when `provenance.json` did not

@@ -1,5 +1,5 @@
 # mcp-verify: node + pnpm. No Bun anywhere — the package must run under
-# plain `npx` (plan-2609-02 D1/D6), and the release script installs the
+# plain `npx`, and the release script installs the
 # forestrie CLI as a published npm package and runs it under plain node, so
 # no Bun is needed in CI either.
 #

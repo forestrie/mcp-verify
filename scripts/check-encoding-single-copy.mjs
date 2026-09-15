@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * D2(c): exactly one @forestrie/encoding in the tree.
+ * Exactly one @forestrie/encoding in the tree.
  *
- * Three copies (0.7.0 / 0.6.0 / 0.5.0) coexist in a fresh install of the
- * @forestrie estate (plan-2609-02, "Encoding skew is worse than the handoff
- * said"). Two copies of a WIRE-TYPE package means two CBOR codecs, and a
+ * Three copies (0.7.0 / 0.6.0 / 0.5.0) have coexisted in a fresh install of
+ * the @forestrie estate. Two copies of a WIRE-TYPE package means two CBOR
+ * codecs, and a
  * verifier that disagrees with itself about the bytes is not a verifier.
  * This is a release gate, not a lint.
  *
@@ -31,7 +31,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 const root = process.argv[2] ?? process.cwd();
-const EXPECTED = "0.7.0"; // D2: exact pin
+const EXPECTED = "0.7.0"; // exact pin
 const MAX_DEPTH = 12;
 
 /** version -> [realpath-ish paths] */

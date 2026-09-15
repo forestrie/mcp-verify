@@ -1,9 +1,9 @@
 # Self-registration
 
 Every release registers a small binding document in a Forestrie transparency
-log, and ships the receipt inside the tarball it describes. This is
-plan-2609-02 step 2.3; the tool that verifies the bundle offline
-(`verify_self` / `verify --self`) is steps 2.4/2.5, implemented below. The
+log, and ships the receipt inside the tarball it describes. The tool that
+verifies the bundle offline, `verify_self` / `verify --self`, is described
+below. The
 `forestrie://self/…` MCP resource namespace in `src/node/server.ts` registers
 the six bundle files when `fixtures/self/` is present, and nothing when it is
 not.
@@ -24,10 +24,9 @@ release workflow (`.github/workflows/publish.yml`):
    }
    ```
 
-   `serverJsonSha256` is **not** in this list yet. D4's field set includes it,
-   but AGENTS.md forbids adding `server.json` before the apex DNS TXT record
-   lands (phase 3) — a field naming a file that does not exist would be a
-   claim nothing backs. It is added in the same PR that adds `server.json`.
+   `serverJsonSha256` is **not** in this list: `provenance.json` does not
+   bind `server.json`. `test/node/self-register.test.ts` asserts the field is
+   absent, so adding it is a deliberate change.
 
 2. Signs `provenance.json` with `forestrie sign-statement` (plain COSE Sign1,
    ES256) using the release key.
@@ -122,7 +121,7 @@ for what that turned out to mean in practice.
 ## The grant chain: recorded, not walked
 
 Provisioning surfaced a runtime finding that changes what `verify_self`
-(step 2.4) must default to. The publications log is not a direct child of
+must default to. The publications log is not a direct child of
 the forest root — it is a **grandchild**: root → auth log → publications
 log. That chain is real and it is recorded in the logs (the `create-log`
 grants that built it), but as of today **neither `forestrie-cli` nor
@@ -224,18 +223,18 @@ that would be true and misleading at once.
 
 ## Secrets and variables (`npm-publish` environment)
 
-| Name                            | Kind                | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| ------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `FORESTRIE_BASE_URL`            | variable            | SCRAPI origin for the lane, e.g. `https://api-a.forest-2.forestrie.dev`                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `FORESTRIE_LOG_ID`              | variable            | The forest's root/bootstrap log id — **confirmed** in provisioning, not the publications log's own id. Used both as `register --log-id`'s URL segment and as the genesis fetch path segment. The grant, not this variable and not the bundle, is what names the publications log — see below.                                                                                                                                                                                                                |
-| `FORESTRIE_RELEASE_KEY_PEM`     | secret              | ES256 private key, PEM. Written to a `0600` temp file for the one `sign-statement` invocation and deleted immediately after, real run or rehearsal alike. Its public point is also derived and bundled as `log-key.xy.b64` (see "The grant chain" above).                                                                                                                                                                                                                                                    |
-| `FORESTRIE_GRANT_B64`           | secret              | The completed `Authorization: Forestrie-Grant` credential, base64. `grant.logId` inside it — never `FORESTRIE_LOG_ID`, never the bundle — is the actual target: the publications log, a grandchild of the forest root.                                                                                                                                                                                                                                                                                       |
-| `DELEGATION_COORDINATOR_URL`    | variable            | Delegation coordinator origin for `forestrie delegate --coordinator-url`. A public value — the coordinator has no secret of its own here; `KNOWN_SEALER_KEY` below is what it checks the vouched sealer against. **The owner must set this before the next tag** — see "Delegate before register" above for why the release now needs it.                                                                                                                                                                    |
-| `KNOWN_SEALER_KEY`              | variable            | The registrar's voucher-signing key that vouches for the operator's sealer, base64 `x‖y` (64 bytes), for `forestrie delegate --known-sealer-key`. Also a public value — this is a known key, not a secret, the same category as `log-key.xy.b64` in the bundle. **The owner must set this before the next tag.**                                                                                                                                                                                             |
-| `FORESTRIE_PUBLICATIONS_LOG_ID` | variable            | The publications log's own id, for `forestrie delegate --log-id` — the log a delegation authorizes a sealer to checkpoint. Distinct from `FORESTRIE_LOG_ID` (the forest's root/bootstrap id) and not derived from `FORESTRIE_GRANT_B64`: nothing in this script parses the grant to recover `grant.logId` today (the CLI decodes it internally for `register`), so this is its own variable rather than a second, silently-drifting source for the same id. **The owner must set this before the next tag.** |
-| `FORESTRIE_CLI`                 | variable (optional) | Path to a local node-runnable `forestrie` CLI entry point (a dev checkout's built `dist/cli.js`), for bisecting without touching the npm cache. When unset, the script `npm install`s the pinned `@forestrie/forestrie-cli@0.8.1` into a version-keyed cache and runs it via `node` (see `scripts/forestrie-cli-npm.mjs`). As of this change the workflow no longer downloads or sha256-verifies a `forestrie-cli` release binary.                                                                           |
+| Name                            | Kind                | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FORESTRIE_BASE_URL`            | variable            | SCRAPI origin for the lane, e.g. `https://api-a.forest-2.forestrie.dev`                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `FORESTRIE_LOG_ID`              | variable            | The forest's root/bootstrap log id — **confirmed** in provisioning, not the publications log's own id. Used both as `register --log-id`'s URL segment and as the genesis fetch path segment. The grant, not this variable and not the bundle, is what names the publications log — see below.                                                                                                                                                                                                            |
+| `FORESTRIE_RELEASE_KEY_PEM`     | secret              | ES256 private key, PEM. Written to a `0600` temp file for the one `sign-statement` invocation and deleted immediately after, real run or rehearsal alike. Its public point is also derived and bundled as `log-key.xy.b64` (see "The grant chain" above).                                                                                                                                                                                                                                                |
+| `FORESTRIE_GRANT_B64`           | secret              | The completed `Authorization: Forestrie-Grant` credential, base64. `grant.logId` inside it — never `FORESTRIE_LOG_ID`, never the bundle — is the actual target: the publications log, a grandchild of the forest root.                                                                                                                                                                                                                                                                                   |
+| `DELEGATION_COORDINATOR_URL`    | variable            | Delegation coordinator origin for `forestrie delegate --coordinator-url`. A public value — the coordinator has no secret of its own here; `KNOWN_SEALER_KEY` below is what it checks the vouched sealer against. **Required: registration fails without it** — see "Delegate before register" above for why the release now needs it.                                                                                                                                                                    |
+| `KNOWN_SEALER_KEY`              | variable            | The registrar's voucher-signing key that vouches for the operator's sealer, base64 `x‖y` (64 bytes), for `forestrie delegate --known-sealer-key`. Also a public value — this is a known key, not a secret, the same category as `log-key.xy.b64` in the bundle. **Required: registration fails without it.**                                                                                                                                                                                             |
+| `FORESTRIE_PUBLICATIONS_LOG_ID` | variable            | The publications log's own id, for `forestrie delegate --log-id` — the log a delegation authorizes a sealer to checkpoint. Distinct from `FORESTRIE_LOG_ID` (the forest's root/bootstrap id) and not derived from `FORESTRIE_GRANT_B64`: nothing in this script parses the grant to recover `grant.logId` today (the CLI decodes it internally for `register`), so this is its own variable rather than a second, silently-drifting source for the same id. **Required: registration fails without it.** |
+| `FORESTRIE_CLI`                 | variable (optional) | Path to a local node-runnable `forestrie` CLI entry point (a dev checkout's built `dist/cli.js`), for bisecting without touching the npm cache. When unset, the script `npm install`s the pinned `@forestrie/forestrie-cli@0.8.1` into a version-keyed cache and runs it via `node` (see `scripts/forestrie-cli-npm.mjs`).                                                                                                                                                                               |
 
-## Rehearsal (plan-2609-02 step 2.6)
+## Rehearsal
 
 Run the `Publish` workflow via `workflow_dispatch` with `rehearsal: true`.
 Every step up to and including `Pack` runs for real, against whatever lane
@@ -256,11 +255,11 @@ tag build publishes by definition and can never be a rehearsal.
 
 Checklist:
 
-1. Confirm `GET {FORESTRIE_BASE_URL}/api/health` is clean (Blocker A, the
-   Cloudflare quota, must be resolved first).
-2. Confirm the owner has provisioned a lane-A publications log the same way
-   as step 2.1's lane-B posture: a fresh ES256 key as the log's own owner
-   key, `FORESTRIE_RELEASE_KEY_PEM` set to its private PEM.
+1. Confirm `GET {FORESTRIE_BASE_URL}/api/health` is clean; the lanes share a
+   Cloudflare request quota, and an exhausted one fails registration.
+2. Confirm the owner has provisioned a publications log on the lane being
+   rehearsed: a fresh ES256 key as the log's own owner key,
+   `FORESTRIE_RELEASE_KEY_PEM` set to its private PEM.
 3. Confirm `FORESTRIE_LOG_ID` is the **forest's root/bootstrap log id** for
    the lane being rehearsed, not the publications log's own id — see "The
    genesis question" above. Confirmed for lane A already; re-check for any
@@ -303,10 +302,9 @@ implementation can re-run.
 
 ## Lane A today, lane B later
 
-D4's target state is a dedicated, durable **lane B** publications log. Phase
-2 proves the mechanism out on **lane A** instead (the owner's 2026-09-12
-decision) — lane A is the rehearsal/dev lane, not the durable one. Every
-receipt shipped in a 0.2.x tarball chains to a **dev-lane checkpoint**, not a
+The target is a dedicated, durable **lane B** publications log. Releases
+register on **lane A** for now — the rehearsal/dev lane, not the durable one.
+Every receipt shipped so far chains to a **dev-lane checkpoint**, not a
 lane-B one, until a lane-B publications log is provisioned and this
 package's secrets move to it. Moving lanes is a re-registration for future
 releases, never a break for receipts already shipped — each receipt is

@@ -19,7 +19,7 @@
  * `@forestrie/forestrie-cli` publishes this same renderer at a pure subpath
  * export, `@forestrie/forestrie-cli/decode-receipt` — name- and
  * shape-compatible with the public surface below, so delegating to it is a
- * one-line import change (plan-2609-02 step P5.5). It has been tried twice
+ * one-line import change. It has been tried twice
  * and reverted twice, for two different reasons.
  *
  * At `0.8.0` the CLI's registry did not carry two forestrie private-use

@@ -1,24 +1,24 @@
 /**
- * The D3 root table, as a test.
+ * The root table, as a test.
  *
- * plan-2609-02 D3 claims a specific thing about the same bytes at two
+ * The design claims a specific thing about the same bytes at two
  * different roots, and this file is that claim in executable form. Where the
  * runtime disagreed with the table as written, the RUNTIME WON and the
  * divergence is recorded below and in docs/trust-roots.md — a plan is a
  * hypothesis about arithmetic, and the arithmetic is the authority.
  *
- * ## Three places the runtime disagreed with the plan's table
+ * ## Three places the runtime disagreed with the table as designed
  *
  * 1. **The accumulator root reports `stage=signature`, not `stage=inclusion`.**
  *    `verifyReceiptOfflineAgainstKnownAccumulator` labels a peak mismatch
  *    `{stage: "signature", reason: "peak_not_in_known_accumulator"}` even
- *    though no signature was evaluated. The D3 SEPARATION is real and is
+ *    though no signature was evaluated. The SEPARATION is real and is
  *    asserted below — it just lives in `reason` and in `questions`, not in
  *    the stage name. Passed through verbatim so `stages[]` keeps the
  *    `forestrie` CLI's contract. Diagnostic:
  *    `accumulator_failure_reported_at_signature_stage`.
  *
- * 2. **A flipped signature byte PASSES at the accumulator root.** The plan's
+ * 2. **A flipped signature byte PASSES at the accumulator root.** The design
  *    table said "same" (a signature failure at both roots). It is not: this
  *    root evaluates no signature at all. The recomputed peak comes from leaf
  *    + inclusion path, both untouched by a signature flip, so it still
@@ -31,7 +31,7 @@
  *    restoring safety.
  *
  * 3. **Truncation and garbage report `receipt_malformed`, not a distinct
- *    reason each.** The plan only claimed `stage=parse` for both, which
+ *    reason each.** The design only claimed `stage=parse` for both, which
  *    holds.
  */
 import { describe, expect, it } from "vitest";
@@ -97,7 +97,7 @@ const MALFORMED: Cell = {
   reason: "receipt_malformed",
 };
 
-describe("D3 — the collapse at genesis and known-log-key", () => {
+describe("the collapse at genesis and known-log-key", () => {
   /**
    * THE claim. Four structurally different tampers, one indistinguishable
    * answer. A detached-payload receipt's signature covers the MMR peak, which
@@ -159,7 +159,7 @@ describe("D3 — the collapse at genesis and known-log-key", () => {
   }
 });
 
-describe("D3 — the separation at known-accumulator", () => {
+describe("the separation at known-accumulator", () => {
   /**
    * The private-branch shape. The receipt is untouched and its signature is
    * genuine, but the accumulator you trust does not hold its peak — which is

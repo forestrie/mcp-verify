@@ -1,11 +1,11 @@
 /**
- * D3: the result carries BOTH enumerations, because they are different
+ * The result carries BOTH enumerations, because they are different
  * things.
  *
  * 1. `stages[]` — the mechanical stages the arithmetic actually ran, exactly
  *    the `forestrie` CLI's `VerifyReport` contract, and not ours to
  *    reinterpret.
- * 2. `questions` — rule P3's four trust questions, which are the product's
+ * 2. `questions` — the trust model's four questions, which are the product's
  *    answers. Each is `ok | failed | not_answered_by_this_root`.
  *
  * The second exists because the first is not enough. A bare "valid" is the
@@ -27,7 +27,7 @@ export type StageRow = {
   reason?: string;
 };
 
-/** P3's four trust questions — the product's answers. */
+/** The trust model's four questions — the product's answers. */
 export type QuestionName =
   "split-view" | "sealing" | "append-authority" | "attribution";
 
@@ -51,7 +51,7 @@ export const QUESTION_NAMES = [
  */
 export type DiagnosticCode =
   /** Detached payload + no independent accumulator: a bad proof and a bad
-   *  signature are the same observation. Plan-2609-02 D3, the collapse. */
+   *  signature are the same observation: the stage collapse. */
   | "detached_payload_stage_collapse"
   /** This root has no independent accumulator, so split-view is unanswered. */
   | "root_answers_no_split_view"

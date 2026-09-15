@@ -2,11 +2,11 @@
  * The bin entry, reached via `bin/mcp-verify.mjs`.
  *
  *   <no args>          → StdioServerTransport; this is what
- *                        `npx -y @forestrie/mcp-verify` does (D6).
+ *                        `npx -y @forestrie/mcp-verify` does.
  *   demo               → run two trust roots over the bundled fixtures.
  *   verify --self      → verify this package's own release-time
  *                        self-registration receipt against the bundled log
- *                        owner key (plan-2609-02 step 2.5). Exit 2, not 1,
+ *                        owner key. Exit 2, not 1,
  *                        when `fixtures/self/` is absent — the normal state
  *                        for a checkout that is not itself the published
  *                        tarball, not a verification failure.

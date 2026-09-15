@@ -1,5 +1,5 @@
 /**
- * D3's root → four-questions mapping, plus the collapse diagnostic.
+ * The root → four-questions mapping, plus the collapse diagnostic.
  *
  * The mapping is root-dependent, and that is the entire point of the Auditor:
  * the same bytes answer more questions under an accumulator root, and the
@@ -216,7 +216,7 @@ export function trustQuestions(input: QuestionsInput): TrustQuestions {
 /**
  * The diagnostics for a run. `detached_payload_stage_collapse` is emitted
  * exactly when the root is genesis-or-known-log-key AND the receipt is
- * detached-payload — the D3 claim in executable form. It is emitted on
+ * detached-payload — the stage-collapse claim in executable form. It is emitted on
  * success too: knowing that a PASS could not have distinguished those two
  * failures is as much a part of the trust story as the failure itself.
  */

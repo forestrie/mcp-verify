@@ -1,5 +1,5 @@
 /**
- * The checkpoint-chain root, over the FOR-368 burial bundle.
+ * The checkpoint-chain root, over the golden burial bundle.
  *
  * What this root does: fold the retained `.sth` chain from its boundary base,
  * verifying each link's signature over the accumulator its own consistency
@@ -16,8 +16,7 @@
  * signature, the folded accumulator against the manifest's recorded value,
  * the peak-not-found verdict, and the missing-trust-root refusal. A positive
  * case needs a fixture that ships the leaf preimage alongside the chain, and
- * belongs in the shared conformance vectors the parent plan schedules for
- * `forestrie/protocol`.
+ * belongs in the shared conformance vectors planned for `forestrie/protocol`.
  */
 import { describe, expect, it } from "vitest";
 import {

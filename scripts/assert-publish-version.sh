@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # assert-publish-version.sh — publish-workflow version guard.
 #
-# Copied from canopy/scripts/assert-publish-version.sh (FOR-365 C3) and adapted
+# Copied from canopy/scripts/assert-publish-version.sh and adapted
 # to a ROOT package with bare `v*` tags. Every error message is kept verbatim:
 # they were clearly written after something went wrong, and each one is
 # load-bearing — the E404 check, the foreign-tag arm, and the
@@ -18,7 +18,7 @@
 #
 #   Dispatch build (anything else — workflow_dispatch):
 #     Two cases, both selected by the caller, never guessed:
-#       - REHEARSAL=true (plan-2609-02 step 2.6): this dispatch will not run
+#       - REHEARSAL=true: this dispatch will not run
 #         `npm publish` at all (publish.yml's own `if:` skips that step), so
 #         the "not already on the registry" check does not apply — a
 #         rehearsal on an already-shipped version is the normal case, not an
@@ -35,7 +35,7 @@
 #   2. A GITHUB_REF-consistency check ported from forestrie-cli's
 #      scripts/assert-tag-version.ts, which the canopy script lacks: when the
 #      caller names an expected tag, it must be the ref actually being built.
-#      That script is Bun, and D1 removes Bun; the check is worth keeping, so
+#      That script is Bun, and this repo has no Bun; the check is worth keeping, so
 #      it moves here.
 #
 # Usage: assert-publish-version.sh [package-dir] [expected-tag]

@@ -71,8 +71,7 @@ export type {
   SelfVerifyResult,
   VerifySelfOptions,
 } from "./verify-self.js";
-/** This package's own release-time self-registration bundle (plan-2609-02
- *  step 2.4). Defaults to the `known-log-key` root with the bundle's own
+/** This package's own release-time self-registration bundle. Defaults to the `known-log-key` root with the bundle's own
  *  key — see docs/self-registration.md for why `genesis` is not the
  *  default. */
 export { summarizeSelf, verifySelf } from "./verify-self.js";

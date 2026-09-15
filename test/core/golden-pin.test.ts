@@ -90,7 +90,7 @@ describe("the self-registration bundle (frozen bytes, test/fixtures/self-bundle)
 
 describe("the fixtures actually ship", () => {
   /**
-   * The fixtures-as-MCP-resources promise (D2) is a packaging promise. The
+   * The fixtures-as-MCP-resources promise is a packaging promise. The
    * full tarball check lives in the publish-dry-run CI job; this is the
    * cheap half that fails in a normal `pnpm test` when someone edits `files`.
    */

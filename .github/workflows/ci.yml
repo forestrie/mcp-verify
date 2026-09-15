@@ -107,7 +107,7 @@ jobs:
       - name: Pack
         run: pnpm pack
 
-      # The fixtures-as-resources promise (D2) is a PACKAGING promise: if
+      # The fixtures-as-resources promise is a PACKAGING promise: if
       # these are not in the tarball, `npx @forestrie/mcp-verify demo` fails
       # for every consumer and passes for every developer.
       - name: The tarball contains what the runtime needs
@@ -203,7 +203,7 @@ jobs:
           fi
           echo "OK: a foreign tag is refused"
 
-      # plan-2609-02 step 2.6: a rehearsal dispatch never runs `npm publish`
+      # A rehearsal dispatch never runs `npm publish`
       # (publish.yml's own `if:` skips that step), so it must pass even when
       # the version is already published — the normal case for re-running a
       # rehearsal, not an error. This runs against the package's REAL,
@@ -226,7 +226,7 @@ jobs:
           fi
           echo "OK: a tag build can never be a rehearsal"
 
-      # plan-2609-02 step 3.3 — server.json can't read version/name from
+      # server.json can't read version/name from
       # package.json at build time (it's a static file the registry fetches
       # directly), so prove both paths of the guard that keeps them honest.
       - name: assert-server-json self-test — pass path

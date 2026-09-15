@@ -135,8 +135,7 @@ describe("verifyGrantReceipt — the frozen receipt against the frozen genesis",
 describe("verifyGrantReceipt — input validation is ours, not the reference's", () => {
   /**
    * forestrie-cli crashes with an uncaught stack trace when the committed
-   * grant is missing, even under --json (plan-2609-02 "What changed on
-   * contact" 3). This layer validates its own inputs and returns a clean
+   * grant is missing, even under --json. This layer validates its own inputs and returns a clean
    * structured failure instead.
    */
   it("a committed grant that is neither COSE nor raw payload is a clean parse failure", async () => {

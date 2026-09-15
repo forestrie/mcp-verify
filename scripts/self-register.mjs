@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 /**
- * Release-time self-registration (plan-2609-02 step 2.3).
+ * Release-time self-registration.
  *
  * Writes `provenance.json` = `{name, version, gitCommit, builtAt}`
- * (`serverJsonSha256` is deferred to phase 3 — AGENTS.md forbids `server.json`
- * before the DNS record lands), signs it with `forestrie sign-statement`,
+ * (no `serverJsonSha256`), signs it with `forestrie sign-statement`,
  * delegates sealing on the publications log with `forestrie delegate` (see
  * below), registers the signed statement with `forestrie register` and
  * waits for the receipt, fetches the forest's kept-copy genesis, derives
@@ -17,13 +16,12 @@
  * neither `forestrie-cli` nor `@forestrie/receipt-verify` walks a grant
  * chain down to a child log yet — a receipt for this log verifies offline
  * under `known-log-key` (the log owner's key) today, and fails under
- * `genesis` with `delegation_invalid`. `verify_self` (step 2.4) will default
+ * `genesis` with `delegation_invalid`. `verify_self` defaults
  * to `known-log-key` with this bundled point; `genesis.cbor` still ships,
  * both because it is cheap and because the walk may land later. See
  * docs/self-registration.md.
  *
- * ## Delegate before register (found 2026-09-13, plan-2609-02 phase 2
- * amendment)
+ * ## Delegate before register
  *
  * A receipt needs the operator's sealer to checkpoint the publications log,
  * and that requires a delegation certificate from the log owner (the
@@ -201,8 +199,8 @@ function defaultRunCli(entry, args) {
  * `GET {baseUrl}/api/forest/{logId}/genesis` — the forest's kept-copy
  * genesis document, the same one `verify --genesis` expects for every log in
  * the forest, child data logs included (see docs/self-registration.md for
- * the evidence trail; this is the one open item the lane-A rehearsal, step
- * 2.6, must confirm — `FORESTRIE_LOG_ID` must be the forest's bootstrap log
+ * the evidence trail; confirmed for lane A, and the thing to re-check on any
+ * new lane — `FORESTRIE_LOG_ID` must be the forest's bootstrap log
  * id, not the publications log's own id, because that is the exact value
  * `forestrie register --log-id` already sends as the URL's bootstrap
  * segment).
@@ -526,7 +524,7 @@ export async function selfRegister(opts = {}) {
     ];
     const manifest = {
       comment:
-        "Release-time self-registration bundle (plan-2609-02 step 2.3). " +
+        "Release-time self-registration bundle. " +
         "Generated, never committed — see fixtures/PROVENANCE.md and " +
         "docs/self-registration.md.",
       generatedAt: builtAt,

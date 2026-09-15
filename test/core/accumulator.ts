@@ -11,7 +11,7 @@
  * check, not an independent snapshot**: it proves the plumbing is wired to
  * the right peak, not that the peak is the one Base Sepolia holds.
  *
- * What it still proves, and what the D3 separation claim actually rests on,
+ * What it still proves, and what the separation claim actually rests on,
  * is the TAMPERED cases. The snapshot is built once from the clean receipt
  * and then held fixed while the receipt is tampered. A flipped inclusion-path
  * byte changes the recomputed peak, which is then no longer in the accumulator
@@ -20,7 +20,7 @@
  * derived-but-fixed accumulator exercises it honestly.
  *
  * An independent snapshot would be strictly better and belongs in the shared
- * conformance vectors the parent plan schedules for `forestrie/protocol`.
+ * conformance vectors planned for `forestrie/protocol`.
  * Until those exist, this is the honest version, said out loud.
  *
  * The peak recompute itself lives in `src/core/peak.ts` — the package needs it

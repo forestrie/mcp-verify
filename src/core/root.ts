@@ -1,5 +1,5 @@
 /**
- * D2: the trust root is an INPUT UNION, mirroring the `forestrie` CLI's flag
+ * The trust root is an INPUT UNION, mirroring the `forestrie` CLI's flag
  * presence (`forestrie-cli/src/options/verify.ts` selects the same four by
  * flag; the roots are not ordered by strength — there are two families,
  * signature roots and accumulator roots). You do not ask for "verification";
@@ -71,7 +71,7 @@ export const ROOT_NAMES = [
 
 /**
  * The roots that carry an independent accumulator, and therefore the roots at
- * which split-view is answerable at all. This single predicate is the D3
+ * which split-view is answerable at all. This single predicate is the root
  * table's load-bearing distinction; `questions.ts` and `verify-*.ts` both read
  * it rather than re-deriving it.
  */
