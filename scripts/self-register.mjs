@@ -58,13 +58,9 @@
  *
  * CLI resolution: `npm install --no-save` of the pinned
  * `@forestrie/forestrie-cli` into a version-keyed cache, run as `node
- * <installed dist/cli.js>` — the same mechanism
- * `test/differential/cli-binary.ts` uses (plan-2609-02 workstream P step P5
- * switched the differential test; this script previously still downloaded a
- * sha256-pinned v0.7.0 GitHub release binary, which this change removes,
- * along with its per-platform asset matrix). The install-and-cache
- * mechanics live in `scripts/forestrie-cli-npm.mjs`, shared with that test
- * file so the version pin and cache layout have one home, not two.
+ * <installed dist/cli.js>`. The install-and-cache mechanics live in
+ * `scripts/forestrie-cli-npm.mjs`. (This replaced a sha256-pinned v0.7.0
+ * GitHub release binary and its per-platform asset matrix.)
  * `FORESTRIE_CLI` is an explicit override to a local node-runnable entry
  * point (a dev checkout's built `dist/cli.js`), for bisecting without
  * touching the npm cache.
@@ -151,16 +147,14 @@ function generateDryRunKeyPem() {
 }
 
 // ---------------------------------------------------------------------------
-// Pinned reference CLI, resolved from npm. See the file header — the
-// install-and-cache mechanics are shared with test/differential/cli-binary.ts
-// via scripts/forestrie-cli-npm.mjs.
+// Pinned forestrie CLI, resolved from npm via scripts/forestrie-cli-npm.mjs.
 // ---------------------------------------------------------------------------
 
 /**
  * Resolve the `forestrie` CLI entry point: `FORESTRIE_CLI` override first (a
  * local node-runnable `dist/cli.js`, for bisecting), else `npm install
  * --no-save` of the pinned `@forestrie/forestrie-cli` into a version-keyed
- * cache — the same mechanism `test/differential/cli-binary.ts` uses. Returns
+ * cache (see `scripts/forestrie-cli-npm.mjs`). Returns
  * a path to a JS entry point; `defaultRunCli` runs it as `node <entry>
  * <args>`.
  */

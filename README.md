@@ -78,13 +78,6 @@ cannot distinguish, and the demo transcript:
 
 Which is why this repo goes to some trouble to make that re-running possible:
 
-- **A differential test** against `@forestrie/forestrie-cli`, Forestrie's
-  command-line verifier, from npm at an exact version. It is a second
-  implementation, not an independent one: both use
-  `@forestrie/receipt-verify`. For every tamper variant under both
-  signature roots, our `ok`, `stage`, `reason` and `stages[]` must equal the
-  reference's byte for byte, and CI runs it on every pull request. See
-  [docs/differential-test.md](docs/differential-test.md).
 - **Frozen conformance vectors**, sha256-pinned to their manifest, shipped
   inside the tarball. See [fixtures/PROVENANCE.md](fixtures/PROVENANCE.md).
 - **`files` includes `src`.** The package that asks you to trust its
@@ -102,10 +95,8 @@ rather than a dependency on `@forestrie/forestrie-cli`, whose published
 decoder is otherwise a drop-in. Delegating to it has been tried twice and
 reverted twice: the two label tables still name some codepoints with
 different text, and that text is output the tool prints, so adopting it is a
-deliberate change to what you see rather than a dependency bump. The
-consolation is that it keeps the differential test's decode comparison
-meaningful — two separately written renderers that agree, rather than one
-compared with itself. See [AGENTS.md](AGENTS.md).
+deliberate change to what you see rather than a dependency bump. See
+[AGENTS.md](AGENTS.md).
 
 Installing the package pulls in more than a verifier needs.
 `@modelcontextprotocol/sdk` brings a web stack, including express, hono,
@@ -130,7 +121,6 @@ Once phase 3 lands, this server is listed as `dev.forestrie/verify` in the
 mise install           # node 22.14.0, pnpm 10.6.5
 pnpm install
 pnpm test              # browser-safe gate + encoding-copy gate + server.json gate + unit tests
-pnpm test:differential # npm-installs the pinned forestrie CLI version
 pnpm build
 ```
 

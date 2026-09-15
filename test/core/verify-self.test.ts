@@ -2,7 +2,7 @@
  * `verifySelf` over the frozen real bundle (plan-2609-02 steps 2.4/2.5).
  *
  * `test/fixtures/self-bundle/PROVENANCE.md` records what was verified at
- * capture with the reference CLI: `--payload statement.cose` PASSES,
+ * capture with the `forestrie` CLI: `--payload statement.cose` PASSES,
  * `--payload provenance.json` reports `signature_invalid`, and
  * `--genesis genesis.cbor` reports `delegation_invalid` (the publications
  * log is a grandchild of the forest root; nothing walks the grant chain

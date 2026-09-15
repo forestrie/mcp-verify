@@ -11,7 +11,7 @@ rest on a key and check the receipt's signature locally. Two are
 control, match the peak against it, and evaluate no signature at all. A
 receipt that verifies under one and not the other is not a contradiction;
 they ask different questions. Which root is right depends on what you hold
-and what you need to know. The reference CLI selects the root by flag.
+and what you need to know. The `forestrie` CLI selects the root by flag.
 
 Everything below is reproducible from the bundled fixtures with
 `npx @forestrie/mcp-verify demo` and asserted by
@@ -30,7 +30,7 @@ receipt contains: [TRANSPARENCY.md](../TRANSPARENCY.md).
 - **`genesis`** when the genesis document is all you have. It is
   self-contained. It roots receipts from the root log or a direct delegate;
   the offline walk that would root a deeper child log is not implemented,
-  here or in the reference CLI. Its trust value depends on when you obtained
+  here or in the `forestrie` CLI. Its trust value depends on when you obtained
   it: see [The genesis document](#the-genesis-document).
 - **`known-log-key`** when the log owner's key reached you through a channel
   you already trust: a contract, an onboarding document, a pinned known-hosts
@@ -77,7 +77,7 @@ obtained your copy decides what verifying under it proves.
   the receipt is consistent with a document the operator chose to serve you
   today, and nothing more. An operator minting a fresh key and genesis for
   your session would pass identically. This is `known-log-key` with the key
-  fetched from the operator, which is exactly what the reference CLI says
+  fetched from the operator, which is exactly what the `forestrie` CLI says
   never to do.
 
 If you did not keep a copy, obtain one from somewhere other than the
@@ -90,7 +90,7 @@ A call takes one root. `checkpoint-chain` also accepts both `genesis` and
 and a split-view answer, run the same bytes against two roots; the arithmetic
 does not change between them.
 
-The `rpc` mode the reference CLI offers — the only one that touches the
+The `rpc` mode the `forestrie` CLI offers — the only one that touches the
 network — is excluded from this package **by construction**. There is no
 branch for it, and a CI gate bundles the core for `platform: "browser"` and
 fails on any edge to a node builtin, let alone a socket.
@@ -175,8 +175,8 @@ from a bad signature when a signature root cannot.
 — `stage: "signature"`, although no signature was evaluated. Same for
 `receipt_newer_than_known_accumulator`. That is upstream's label
 (`@forestrie/receipt-verify@1.0.0`, `known-accumulator.ts`), and this package
-passes `stage`/`reason` through **verbatim** so `stages[]` stays comparable
-with the reference CLI's contract.
+passes `stage`/`reason` through **verbatim** so `stages[]` keeps the
+`forestrie` CLI's contract.
 
 The separation is real; it just lives in `reason` and in
 `questions["split-view"]` rather than in the stage name. The
@@ -190,8 +190,7 @@ finding.
 **first** and checks the anchor only if that passed, so its stage collapse
 survives into the accumulator check. Here the accumulator is the sole
 authority and no signature is evaluated. That is what produces the
-separation, and it is why the two accumulator roots are outside the
-differential matrix: see [differential-test.md](differential-test.md).
+separation.
 
 A planned CLI change lets `--known-accumulator` stand alone the same way,
 closing this gap; until it ships, the two implementations disagree here by
@@ -200,10 +199,9 @@ design, not by accident.
 ## The stages, and why they are also reported
 
 `stages[]` is the mechanical pipeline — `parse`, `signature`, `inclusion`,
-`binding`, each `ok | failed | skipped` — and it is exactly the reference
-CLI's `VerifyReport` contract, which its own CI asserts. It is reported
-unmodified so `test/differential/` can compare the two implementations field
-for field. The four questions are what that verdict is _evidence for_; the
+`binding`, each `ok | failed | skipped` — and it is exactly the `forestrie`
+CLI's `VerifyReport` contract, which that CLI's own CI asserts, reported
+unmodified. The four questions are what that verdict is _evidence for_; the
 stages are what actually ran. Both, always.
 
 ## The demo

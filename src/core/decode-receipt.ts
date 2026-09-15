@@ -49,8 +49,8 @@
  * Neither is wrong — the CLI's is arguably better — but adopting it changes
  * what `decode_receipt` prints, which is a product decision and not a
  * dependency bump. As before, no gate catches it on its own: no fixture here
- * carries either codepoint, so `check:encoding-single-copy`,
- * `check:browser-safe` and the differential comparison all stay green. The
+ * carries either codepoint, so `check:encoding-single-copy` and
+ * `check:browser-safe` both stay green. The
  * two tests in `test/core/decode-receipt.test.ts` assert these strings
  * directly against the tables below, which is why the second attempt was
  * caught by the gate rather than by review. **Do not loosen them to make a
@@ -65,14 +65,9 @@
  * re-export it was always meant to be. The checklist for that change is in
  * `AGENTS.md`.
  *
- * Note also what delegating costs: the differential test's decode row
- * compares this renderer against the CLI's. Delegate, and both sides run the
- * same code and the row stops being evidence. See
- * `docs/differential-test.md`.
- *
  * ## One deliberate behavioural difference
  *
- * The reference renderer decodes the protected header with its own lenient
+ * The CLI's renderer decodes the protected header with its own lenient
  * CBOR reader. This one uses `decodeCborDeterministic`, which rejects
  * indefinite lengths, floats, non-canonical encodings and trailing bytes. A
  * receipt whose protected header is not RFC 8949 §4.2 canonical renders in the

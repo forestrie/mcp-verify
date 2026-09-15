@@ -4,7 +4,7 @@
  * package's own bundled fixtures.
  *
  * This module validates aggressively and errors clearly, and that is a
- * deliberate response to the reference implementation: `forestrie verify-grant`
+ * deliberate response to the `forestrie` CLI: `forestrie verify-grant`
  * crashes with an uncaught stack trace when a required argument is missing,
  * even under `--json` (plan-2609-02 "What changed on contact" 3). An MCP tool
  * that did the same would hand an agent a stack trace where it expected a

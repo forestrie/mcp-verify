@@ -3,8 +3,8 @@
  *
  * Two verify functions rather than one with a union, because the leaf
  * commitment preimage differs — a payload receipt commits `SHA-256(payload)`,
- * a grant receipt commits the grant commitment hash — and mirroring the
- * reference CLI 1:1 buys a free differential test.
+ * a grant receipt commits the grant commitment hash. The `forestrie` CLI
+ * makes the same split, as `verify` and `verify-grant`.
  *
  * Under the known-accumulator root the two differ only in the leaf hash.
  * `@forestrie/receipt-verify` has one

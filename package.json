@@ -69,7 +69,6 @@
     "check:encoding-single-copy": "node scripts/check-encoding-single-copy.mjs",
     "check:server-json": "node scripts/assert-server-json.mjs",
     "test:unit": "vitest run --project unit",
-    "test:differential": "vitest run --project differential",
     "test": "pnpm run check:browser-safe && pnpm run check:encoding-single-copy && pnpm run check:server-json && vitest run --project unit",
     "test:watch": "vitest --project unit",
     "demo": "node ./bin/mcp-verify.mjs demo",

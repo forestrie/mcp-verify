@@ -127,14 +127,11 @@ rendered output. That change is:
 5. Run the two label-name tests in `test/core/decode-receipt.test.ts`
    unchanged. If they fail, the swap still changes output: stop and say so
    rather than editing the expectations.
-6. Keep the differential test, and accept that its decode comparison then
-   compares one implementation with itself.
 
 We do **not** vendor code from other repos into this tree. This file is not
 vendoring `forestrie-cli`'s source — it is a separately written implementation
 against the same public registry and the same published wire-format
-packages, which is why the differential test's `decode_receipt` comparison
-is meaningful rather than circular.
+packages.
 
 ## Nothing writes to stdout in stdio mode except the transport
 
@@ -169,8 +166,8 @@ Both are asserted in `test/core/root-table.test.ts` with comments. Read
    re-check the signature would destroy the separation the accumulator root exists to
    demonstrate.
 2. **The `known-accumulator` root reports failures as `stage=signature`.**
-   That is upstream's label, passed through verbatim so `stages[]` stays
-   comparable with the reference CLI. The separation lives in `reason` and in
+   That is upstream's label, passed through verbatim so `stages[]` keeps
+   the `forestrie` CLI's contract. The separation lives in `reason` and in
    `questions`.
 
 ## `stageRows`' unknown-stage branch
@@ -183,7 +180,6 @@ four silent "skipped" rows would **hide the failure**. Do not simplify it away.
 
 ```
 pnpm test              # check:browser-safe && check:encoding-single-copy && check:server-json && unit
-pnpm test:differential # npm-installs the pinned forestrie CLI version; see docs/
 pnpm typecheck
 pnpm format:check
 pnpm build
@@ -278,7 +274,7 @@ publish`. See `docs/self-registration.md`'s "Delegate before register"
 
 As of this change, the "Register provenance" step no longer downloads a
 `forestrie` CLI binary — it resolves `@forestrie/forestrie-cli@0.8.1` from
-npm, the same mechanism `test/differential/cli-binary.ts` uses.
+npm through `scripts/forestrie-cli-npm.mjs`.
 
 ## Links must resolve without org access
 

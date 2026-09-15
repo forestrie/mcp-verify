@@ -3,8 +3,8 @@
  * things.
  *
  * 1. `stages[]` — the mechanical stages the arithmetic actually ran, exactly
- *    the reference CLI's `VerifyReport` contract. This is the differential
- *    test's target and it is not ours to reinterpret.
+ *    the `forestrie` CLI's `VerifyReport` contract, and not ours to
+ *    reinterpret.
  * 2. `questions` — rule P3's four trust questions, which are the product's
  *    answers. Each is `ok | failed | not_answered_by_this_root`.
  *
@@ -59,7 +59,8 @@ export type DiagnosticCode =
   | "grant_authority_not_checked_for_payload_receipt"
   /** Upstream labels a peak/staleness failure at the accumulator root as
    *  stage=signature although no signature was evaluated. Passed through
-   *  verbatim for differential fidelity; named here so nobody misreads it. */
+   *  verbatim to keep the CLI's stage contract; named here so nobody
+   *  misreads it. */
   | "accumulator_failure_reported_at_signature_stage"
   /** verify_self / verify --self only. The publications log this package
    *  registers into is a grandchild of the forest root (root → auth log →
@@ -98,9 +99,9 @@ export type AnchorReport = {
 };
 
 /**
- * The tool result. A superset of the CLI's `VerifyReport` on the four fields
- * the differential test compares (`ok`, `stage`, `reason`, `stages`);
- * `questions`, `diagnostics` and `verifier` are ours alone.
+ * The tool result. A superset of the CLI's `VerifyReport`, whose fields are
+ * `ok`, `stage`, `reason` and `stages`; `questions`, `diagnostics` and
+ * `verifier` are ours alone.
  */
 export type VerifyResult = {
   ok: boolean;

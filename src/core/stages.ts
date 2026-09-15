@@ -1,8 +1,7 @@
 /**
  * Port of `forestrie-cli/src/lib/verify-report.ts:113-142`. The `--json`
- * stage shape is a load-bearing contract — the reference CLI's own CI asserts
- * it — so this is a port, not an adaptation. `test/differential/` compares
- * the output of this function against the CLI's byte for byte.
+ * stage shape is a load-bearing contract — the CLI's own CI asserts it — so
+ * this is a port, not an adaptation.
  */
 import type { ReceiptVerifyResult } from "@forestrie/receipt-verify";
 import type { ReceiptVerifyStage, StageRow } from "./result.js";
