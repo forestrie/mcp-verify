@@ -10,9 +10,8 @@
  *    `linux-arm64`, `darwin-x64` or Windows asset for the Bun binary, so
  *    those hosts skipped the differential test; an npm package runs
  *    identically everywhere `node` does.
- * 2. It is literally what an outside auditor runs (`npx -y
- *    @forestrie/forestrie-cli`) — the neutrality property the whole plan is
- *    about.
+ * 2. It is the CLI as its users install it (`npx -y
+ *    @forestrie/forestrie-cli`), not a build from a source checkout.
  * 3. A checksum sidecar is no longer available (npm packages are not
  *    sha256-sidecarred the way GitHub release assets are), so the pin is now
  *    the exact, deliberately-bumped `FORESTRIE_CLI_VERSION` below, resolved
@@ -40,7 +39,7 @@
  * Rebase procedure: docs/differential-test.md.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -129,4 +128,42 @@ export async function resolveCliBinary(): Promise<ResolveOutcome> {
     run: (args) => spawnViaNode(cliEntry, args),
     source: "npm-install",
   };
+}
+
+export type SharedLibrary = {
+  name: string;
+  /** The exact version this package pins. */
+  ours: string;
+  /** The version the npm-installed reference resolved, or null if unused. */
+  reference: string | null;
+};
+
+function installedVersion(packageJson: string): string | null {
+  if (!existsSync(packageJson)) return null;
+  return (JSON.parse(readFileSync(packageJson, "utf8")) as { version: string })
+    .version;
+}
+
+/**
+ * Every `@forestrie/*` library this package depends on, with the version this
+ * package pins beside the version the npm-installed reference resolved.
+ * Resolution follows node's order from the CLI's own directory: its nested
+ * `node_modules` first, then the hoisted one. Meaningless for a
+ * `FORESTRIE_CLI_BIN` override, which is not version-pinned.
+ */
+export function sharedLibraryVersions(): SharedLibrary[] {
+  const { dependencies = {} } = JSON.parse(
+    readFileSync(join(repoRoot, "package.json"), "utf8"),
+  ) as { dependencies?: Record<string, string> };
+  const cliDir = dirname(dirname(cliEntry));
+  const hoisted = dirname(dirname(cliDir));
+  return Object.entries(dependencies)
+    .filter(([name]) => name.startsWith("@forestrie/"))
+    .map(([name, ours]) => ({
+      name,
+      ours,
+      reference:
+        installedVersion(join(cliDir, "node_modules", name, "package.json")) ??
+        installedVersion(join(hoisted, name, "package.json")),
+    }));
 }

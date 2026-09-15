@@ -131,7 +131,7 @@ rendered output. That change is:
    compares one implementation with itself.
 
 We do **not** vendor code from other repos into this tree. This file is not
-vendoring `forestrie-cli`'s source — it is an independent implementation
+vendoring `forestrie-cli`'s source — it is a separately written implementation
 against the same public registry and the same published wire-format
 packages, which is why the differential test's `decode_receipt` comparison
 is meaningful rather than circular.

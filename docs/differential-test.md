@@ -1,9 +1,10 @@
 # The differential test
 
-This test compares mcp-verify's verification with an independent reference, the
-published `@forestrie/forestrie-cli`. Every other test in this repo shows that
-the arithmetic is consistent with itself. This one shows that it gives the same
-answers as a verifier someone else ships.
+This test compares mcp-verify with `@forestrie/forestrie-cli`, the Forestrie
+command-line verifier, as published on npm. Both are Forestrie projects and
+both call the same `@forestrie/receipt-verify`, so this is not an independent
+check of the verification itself. It checks that the two tools turn that
+library's results into the same reports, and decode receipts the same way.
 
 Read this document for three things:
 
@@ -72,14 +73,22 @@ If the reference cannot be resolved, the test skips locally and fails in CI,
 where `FORESTRIE_DIFFERENTIAL=required` is set. It never runs against an
 unpinned reference.
 
-Only the CLI's own version is pinned. The CLI resolves its
-`@forestrie/receipt-verify` and `@forestrie/encoding` from its declared version
-ranges when it is installed, and that install is cached per CLI version,
-locally and in CI. The reference can therefore run older library versions than
-the exact versions this package pins, until the cache is rebuilt.
+The reference also runs the same versions of the `@forestrie/*` libraries
+this package depends on, such as `@forestrie/receipt-verify`. That way a
+disagreement is always between the two implementations, never between library
+versions. npm resolves those libraries from the CLI's own version ranges, so
+this is checked rather than assumed: a guard test fails if the reference
+install resolved any version other than this package's pin.
 
-npm is used rather than a source checkout because it is what an outside auditor
-runs, `npx @forestrie/forestrie-cli`, and because it keeps Bun out of the
+The install is cached. In CI the cache key is the CLI version plus this repo's
+lockfile, so changing any pin installs the reference afresh. Locally the cache
+is per CLI version only, so after changing a pin, delete
+`node_modules/.cache/forestrie-cli-npm`. If the guard still fails on a fresh
+install, an upstream library has released past this package's pin: bump the
+pin.
+
+npm is used rather than a source checkout because that is how the CLI's users
+install it, `npx @forestrie/forestrie-cli`, and because it keeps Bun out of the
 toolchain. npm's registry integrity check stands in for a checksum pin.
 
 ## Running it
@@ -99,9 +108,10 @@ A disagreement is a finding, not a test bug. Decide which of these it is:
 - **A bug in mcp-verify.** Fix the code. Assume this first.
 - **A bug in the CLI.** Pin the CLI's output in the test with a comment that
   names the bug and links the issue, and file it.
-- **Different library versions.** Compare the `@forestrie/*` versions inside
-  the cached reference install with this package's pins. Rebuild the cache, or
-  record both versions in the test, before calling it a bug on either side.
+
+If the library-version guard failed in the same run, fix that first. Until it
+passes, a disagreement may come from a library change rather than from either
+implementation.
 
 Never loosen an assertion silently. If one has to change, say what diverged and
 why, in the test and in this document.
@@ -113,8 +123,8 @@ why, in the test and in this document.
 2. Change `FORESTRIE_CLI_VERSION` in `scripts/forestrie-cli-npm.mjs`. It is the
    only place the version lives, shared with `scripts/self-register.mjs`, and
    the install cache path includes it, so the next run installs afresh.
-3. Change the version in the cache step's `key:` in `.github/workflows/ci.yml`,
-   so CI stops reusing the old install.
+3. Change the CLI version in the cache step's `key:` in
+   `.github/workflows/ci.yml`, so CI stops reusing the old install.
 4. Run `pnpm test:differential` and settle every new disagreement before
    merging. Never merge a bump with assertions relaxed to make it pass.
 5. Compare the CLI's label tables with the ones in `src/core/decode-receipt.ts`

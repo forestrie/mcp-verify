@@ -78,8 +78,10 @@ cannot distinguish, and the demo transcript:
 
 Which is why this repo goes to some trouble to make that re-running possible:
 
-- **A differential test** against the published `@forestrie/forestrie-cli`
-  npm package, pinned at an exact version. For every tamper variant under both
+- **A differential test** against `@forestrie/forestrie-cli`, Forestrie's
+  command-line verifier, from npm at an exact version. It is a second
+  implementation, not an independent one: both use
+  `@forestrie/receipt-verify`. For every tamper variant under both
   signature roots, our `ok`, `stage`, `reason` and `stages[]` must equal the
   reference's byte for byte, and CI runs it on every pull request. See
   [docs/differential-test.md](docs/differential-test.md).
@@ -102,8 +104,8 @@ reverted twice: the two label tables still name some codepoints with
 different text, and that text is output the tool prints, so adopting it is a
 deliberate change to what you see rather than a dependency bump. The
 consolation is that it keeps the differential test's decode comparison
-honest — two independent renderers that agree, rather than one compared with
-itself. See [AGENTS.md](AGENTS.md).
+meaningful — two separately written renderers that agree, rather than one
+compared with itself. See [AGENTS.md](AGENTS.md).
 
 Installing the package pulls in more than a verifier needs.
 `@modelcontextprotocol/sdk` brings a web stack, including express, hono,

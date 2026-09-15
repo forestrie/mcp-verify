@@ -22,7 +22,11 @@ import {
   readFixture,
 } from "../../src/node/fixtures.js";
 import { GENESIS, grantCases, type GrantCase } from "../core/tamper.js";
-import { FORESTRIE_CLI_VERSION, resolveCliBinary } from "./cli-binary.js";
+import {
+  FORESTRIE_CLI_VERSION,
+  resolveCliBinary,
+  sharedLibraryVersions,
+} from "./cli-binary.js";
 
 const KEY_XY = fromHex(GOLDEN_MANIFEST.grantDataHex);
 const KEY_XY_B64 = Buffer.from(KEY_XY).toString("base64");
@@ -125,6 +129,22 @@ describe.skipIf(!run)(
       }
     });
 
+    it("(guard) the reference runs this package's @forestrie/* versions", () => {
+      // Without this, a disagreement could come from a library change rather
+      // than from either implementation. An override is not version-pinned.
+      if (outcome.run === null || outcome.source === "env") return;
+      const skewed = sharedLibraryVersions().filter(
+        (l) => l.reference !== null && l.reference !== l.ours,
+      );
+      expect(
+        skewed,
+        "the reference install resolved @forestrie/* versions other than this " +
+          "package's pins. Delete node_modules/.cache/forestrie-cli-npm and " +
+          "re-run; if it still differs, upstream has released past a pin, so " +
+          "bump the pin. See docs/differential-test.md.",
+      ).toEqual([]);
+    });
+
     for (const c of grantCases()) {
       describe(`${c.name} — ${c.what}`, () => {
         it("genesis root: ok/stage/reason/stages match", async () => {
@@ -182,10 +202,8 @@ describe.skipIf(!run)(
     /**
      * `decode_receipt` against `forestrie decode-receipt --json`.
      *
-     * Our renderer is written fresh over the published packages rather than
-     * copied from the CLI (the CLI is unpublished, and forking 667 lines of
-     * someone else's source is a worse trade than a reimplementation the
-     * differential keeps honest). It was written to a documented subset and
+     * Our renderer is written separately over the published packages rather
+     * than copied from the CLI, so this compares two implementations. It was written to a documented subset and
      * turned out to reproduce the reference output EXACTLY for the golden
      * receipt — nested CBOR rendering of header 396 included — so the
      * assertion is a full deep-equal rather than a subset match.
