@@ -82,7 +82,14 @@ describe("checkServerJson — registry length caps", () => {
   });
 
   it("a missing title is fine — title is optional", () => {
-    expect(REAL_SERVER.title).toBeUndefined();
-    expect(checkServerJson(REAL_PKG, REAL_SERVER)).toEqual([]);
+    const { title: _title, ...untitled } = REAL_SERVER;
+    expect(untitled.title).toBeUndefined();
+    expect(checkServerJson(REAL_PKG, untitled)).toEqual([]);
+  });
+
+  it("the real server.json sets a task-first title within the cap", () => {
+    expect(typeof REAL_SERVER.title).toBe("string");
+    expect((REAL_SERVER.title as string).length).toBeLessThanOrEqual(100);
+    expect(REAL_SERVER.title).toMatch(/^Verify /);
   });
 });
