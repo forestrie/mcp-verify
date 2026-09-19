@@ -110,6 +110,14 @@ Forestrie log and ships the receipt inside the tarball — two independent
 trust roots, npm's SLSA provenance and a Forestrie receipt, rather than one
 circular one. See [docs/self-registration.md](docs/self-registration.md).
 
+That bundle is also the subject of a worked example: fetching this
+package's own release receipt from the public lane, verifying it under the
+bundled key, seeing the documented `delegation_invalid` under the genesis
+root, and getting `split-view ok` from a chain read — end to end in a few
+seconds, with no account. It lives in
+[`@forestrie/mcp-resolve`'s README](https://github.com/forestrie/mcp-resolve#a-worked-example-one-receipt-end-to-end),
+because fetching is that package's job, not this one's.
+
 ## Registry
 
 This server is listed as `dev.forestrie/verify` in the
