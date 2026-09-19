@@ -4,7 +4,7 @@
   "mcpName": "dev.forestrie/verify",
   "license": "MIT",
   "type": "module",
-  "description": "MCP verification server for Forestrie receipts \u2014 offline, no backend, no key, no network",
+  "description": "Verify a SCITT receipt under a trust root you hold — offline, no backend, no key, no network",
   "keywords": [
     "mcp",
     "modelcontextprotocol",
@@ -12,7 +12,13 @@
     "cose",
     "receipt",
     "transparency-log",
-    "forestrie"
+    "forestrie",
+    "verify",
+    "verification",
+    "provenance",
+    "transparency",
+    "audit-log",
+    "split-view"
   ],
   "repository": {
     "type": "git",

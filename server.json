@@ -1,7 +1,8 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "dev.forestrie/verify",
-  "description": "MCP verification server for Forestrie receipts — offline, no backend, no key, no network",
+  "title": "Verify SCITT receipts from Forestrie transparency logs, offline",
+  "description": "Verify a SCITT receipt under a trust root you hold — offline, no backend, no key, no network",
   "version": "0.4.1",
   "repository": {
     "url": "https://github.com/forestrie/mcp-verify",

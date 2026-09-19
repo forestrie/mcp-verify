@@ -1,7 +1,8 @@
 # @forestrie/mcp-verify
 
-An MCP server whose only tools verify and decode Forestrie receipts.
-**No backend, no account, no key, no network.**
+Verify a SCITT receipt from a Forestrie transparency log under a trust
+root you hold. **Offline: no backend, no account, no key, no network.**
+An MCP server whose only tools verify and decode receipts.
 
 ```json
 {
