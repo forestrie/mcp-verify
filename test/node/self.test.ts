@@ -22,7 +22,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createServer } from "../../src/node/server.js";
 import { readSelfFixture } from "../../src/node/fixtures.js";
-import { runVerifySelf } from "../../src/node/self-cli.js";
+import { parseSelfRootFlag, runVerifySelf } from "../../src/node/self-cli.js";
 import { SELF_BUNDLE_DIR } from "../core/self-bundle.js";
 
 const ENV_VAR = "MCP_VERIFY_SELF_FIXTURES_DIR";
@@ -82,6 +82,47 @@ describe("verify --self / verify_self — the bundle is populated from the froze
     expect(text).toContain("root=known-log-key");
     expect(text).toContain("self_chain_not_walked");
     expect(text).toContain("@forestrie/mcp-verify@0.2.0");
+  });
+
+  it("runVerifySelf --root genesis is honoured: exits 1 with delegation_invalid, and says why", async () => {
+    const { write, lines } = linesOf();
+    const code = await runVerifySelf(write, { root: "genesis" });
+    const text = lines.join("\n");
+    expect(code).toBe(1);
+    expect(text).toContain("verify --self --root genesis");
+    expect(text).toContain("root=genesis");
+    expect(text).toContain("delegation_invalid");
+    expect(text).toContain("the walk's limit, not a");
+    expect(text).not.toContain("root=known-log-key");
+  });
+
+  it("parseSelfRootFlag: absent is the default, genesis and known-log-key are honoured, anything else is refused with the remedy", () => {
+    expect(parseSelfRootFlag(["verify", "--self"])).toEqual({
+      ok: true,
+      root: undefined,
+    });
+    expect(
+      parseSelfRootFlag(["verify", "--self", "--root", "genesis"]),
+    ).toEqual({ ok: true, root: "genesis" });
+    expect(
+      parseSelfRootFlag(["verify", "--self", "--root", "known-log-key"]),
+    ).toEqual({ ok: true, root: "known-log-key" });
+    const unsupported = parseSelfRootFlag([
+      "verify",
+      "--self",
+      "--root",
+      "known-accumulator",
+    ]);
+    expect(unsupported.ok).toBe(false);
+    if (unsupported.ok) throw new Error("unreachable");
+    expect(unsupported.message).toContain(
+      "--root known-accumulator is not supported",
+    );
+    expect(unsupported.message).toContain("verify_self MCP tool");
+    const missing = parseSelfRootFlag(["verify", "--self", "--root"]);
+    expect(missing.ok).toBe(false);
+    if (missing.ok) throw new Error("unreachable");
+    expect(missing.message).toContain("--root needs a value");
   });
 
   describe("the MCP tool and resources", () => {
