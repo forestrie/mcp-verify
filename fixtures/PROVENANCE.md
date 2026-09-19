@@ -57,6 +57,14 @@ Then copy the whole directory across again and update the commit hash above in
 the same PR. `test/core/golden-pin.test.ts` fails until the digests and the
 manifests agree, which is the point.
 
+## The lane-A anchored bundle
+
+`fixtures/lane-a/` is a third set: a real receipt from a public lane and
+the accumulator the chain published for its log, frozen together so an
+accumulator root runs offline against an independent anchor. It has its
+own [PROVENANCE.md](lane-a/PROVENANCE.md) and manifest, and the same pin
+test covers it.
+
 ## The self-registration bundle is a different thing, elsewhere
 
 `fixtures/self/` (this package's own release-time self-registration bundle)

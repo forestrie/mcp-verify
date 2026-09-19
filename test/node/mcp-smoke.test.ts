@@ -21,7 +21,7 @@ import {
   goldenEntryId,
   readFixture,
 } from "../../src/node/fixtures.js";
-import { verifyOutputShape } from "../../src/node/tools.js";
+import { TOOL_NAMES, verifyOutputShape } from "../../src/node/tools.js";
 
 const repoRoot = new URL("../../", import.meta.url).pathname;
 const pkg = JSON.parse(readFileSync(`${repoRoot}package.json`, "utf8")) as {
@@ -65,6 +65,11 @@ describe("initialize", () => {
 });
 
 describe("tools/list", () => {
+  it("returns exactly TOOL_NAMES, in order", async () => {
+    const { tools } = await client.listTools();
+    expect(tools.map((t) => t.name)).toEqual([...TOOL_NAMES]);
+  });
+
   it("returns exactly the four tools", async () => {
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
@@ -107,7 +112,180 @@ describe("tools/list", () => {
   });
 });
 
+/** Read one `forestrie://fixtures/…` resource back as bytes (blob) or
+ *  text, the way a client that holds nothing of its own would. */
+async function readResource(
+  rel: string,
+): Promise<{ b64: string } | { text: string }> {
+  const { contents } = await client.readResource({
+    uri: `forestrie://fixtures/${rel}`,
+  });
+  const c = contents[0] as { blob?: string; text?: string };
+  if (typeof c.blob === "string") return { b64: c.blob };
+  if (typeof c.text === "string") return { text: c.text };
+  throw new Error(`resource ${rel} has neither blob nor text`);
+}
+
+describe("tools/call driven from bundled resources only (nothing the client holds)", () => {
+  it("verify_grant_receipt reaches PASS from golden/{grant-receipt,committed-grant,entry-id,grant-genesis}", async () => {
+    const receipt = await readResource("golden/grant-receipt.cbor");
+    const committedGrant = await readResource("golden/committed-grant.cbor");
+    const entryId = await readResource("golden/entry-id.txt");
+    const genesis = await readResource("golden/grant-genesis.cbor");
+    if (!("text" in entryId)) throw new Error("entry id is text");
+    const res = await client.callTool({
+      name: "verify_grant_receipt",
+      arguments: {
+        receipt,
+        committedGrant,
+        entryId: entryId.text,
+        trust: { root: "genesis", genesis },
+      },
+    });
+    expect(res.isError).toBeFalsy();
+    const r = res.structuredContent as { ok: boolean; root: string };
+    expect(r.ok).toBe(true);
+    expect(r.root).toBe("genesis");
+    expect((res.content as { text: string }[])[0]?.text).toContain(
+      "verify-grant: PASS",
+    );
+    // The derived resource is byte-identical to the in-process rebuild.
+    if (!("b64" in committedGrant)) throw new Error("grant is a blob");
+    expect(committedGrant.b64).toBe(b64(goldenCommittedGrant()));
+    expect(entryId.text).toBe(goldenEntryId());
+  });
+
+  it("verify_receipt over lane-a/{receipt,statement,entry-id,accumulator} passes with split-view ok — an accumulator root, offline, against a real anchor", async () => {
+    const receipt = await readResource("lane-a/receipt.cbor");
+    const payload = await readResource("lane-a/statement.cose");
+    const entryId = await readResource("lane-a/entry-id.txt");
+    const accumulator = await readResource("lane-a/accumulator.cbor");
+    if (!("text" in entryId)) throw new Error("entry id is text");
+    const res = await client.callTool({
+      name: "verify_receipt",
+      arguments: {
+        receipt,
+        payload,
+        entryId: entryId.text,
+        trust: { root: "known-accumulator", accumulator },
+      },
+    });
+    expect(res.isError).toBeFalsy();
+    const r = res.structuredContent as {
+      ok: boolean;
+      root: string;
+      questions: Record<string, { status: string }>;
+      anchor?: {
+        anchored: boolean;
+        matchedPeak: number | null;
+        anchoredSize: number | string;
+      };
+    };
+    expect(r.ok).toBe(true);
+    expect(r.root).toBe("known-accumulator");
+    expect(r.questions["split-view"]?.status).toBe("ok");
+    expect(r.anchor?.anchored).toBe(true);
+    expect(r.anchor?.matchedPeak).not.toBeNull();
+    expect(String(r.anchor?.anchoredSize)).toBe("11");
+    expect((res.content as { text: string }[])[0]?.text).toContain(
+      "verify: PASS · root=known-accumulator · sealing ok, split-view ok",
+    );
+  });
+
+  it("the same lane-a receipt under known-log-key passes, and under genesis reports delegation_invalid", async () => {
+    const receipt = await readResource("lane-a/receipt.cbor");
+    const payload = await readResource("lane-a/statement.cose");
+    const entryId = await readResource("lane-a/entry-id.txt");
+    const keyXy = await readResource("lane-a/log-key.xy.b64");
+    const genesis = await readResource("lane-a/genesis.cbor");
+    if (!("text" in entryId) || !("text" in keyXy)) throw new Error("text");
+    const underKey = await client.callTool({
+      name: "verify_receipt",
+      arguments: {
+        receipt,
+        payload,
+        entryId: entryId.text,
+        trust: { root: "known-log-key", keyXy: { b64: keyXy.text.trim() } },
+      },
+    });
+    expect((underKey.structuredContent as { ok: boolean }).ok).toBe(true);
+    const underGenesis = await client.callTool({
+      name: "verify_receipt",
+      arguments: {
+        receipt,
+        payload,
+        entryId: entryId.text,
+        trust: { root: "genesis", genesis },
+      },
+    });
+    const g = underGenesis.structuredContent as {
+      ok: boolean;
+      reason: string;
+    };
+    expect(g.ok).toBe(false);
+    expect(g.reason).toBe("delegation_invalid");
+  });
+
+  it("the burial chain's root key is offered as base64 and folds the chain (peak not found: the bundle ships no leaf preimage)", async () => {
+    const keyXy = await readResource("golden/burial/public-key.xy.b64");
+    if (!("text" in keyXy)) throw new Error("text");
+    const manifest = await readResource("golden/burial/manifest.json");
+    if (!("text" in manifest)) throw new Error("text");
+    const files = (JSON.parse(manifest.text) as { checkpointFiles: string[] })
+      .checkpointFiles;
+    const checkpoints = [];
+    for (const f of files)
+      checkpoints.push(await readResource(`golden/burial/${f}`));
+    const receipt = await readResource("golden/burial/burial-receipt.cbor");
+    // The burial receipt's leaf preimage is not shipped, so a golden entry
+    // id / committed grant is used only to drive the fold; the verdict is
+    // the documented negative one.
+    const res = await client.callTool({
+      name: "verify_grant_receipt",
+      arguments: {
+        receipt,
+        committedGrant: await readResource("golden/committed-grant.cbor"),
+        entryId: goldenEntryId(),
+        trust: {
+          root: "checkpoint-chain",
+          checkpoints,
+          keyXy: { b64: keyXy.text },
+        },
+      },
+    });
+    expect(res.isError).toBeFalsy();
+    const r = res.structuredContent as {
+      ok: boolean;
+      root: string;
+      stage: string;
+      anchor?: { anchored: boolean };
+    };
+    expect(r.root).toBe("checkpoint-chain");
+    expect(r.ok).toBe(false);
+    expect(r.stage).not.toBe("parse");
+  });
+});
+
 describe("resources/list", () => {
+  it("offers the derived golden inputs and the lane-A bundle", async () => {
+    const { resources } = await client.listResources();
+    const uris = resources.map((r) => r.uri);
+    for (const rel of [
+      "golden/committed-grant.cbor",
+      "golden/entry-id.txt",
+      "golden/burial/public-key.xy.b64",
+      "lane-a/manifest.json",
+      "lane-a/receipt.cbor",
+      "lane-a/statement.cose",
+      "lane-a/entry-id.txt",
+      "lane-a/log-key.xy.b64",
+      "lane-a/genesis.cbor",
+      "lane-a/accumulator.cbor",
+    ]) {
+      expect(uris).toContain(`forestrie://fixtures/${rel}`);
+    }
+  });
+
   it("includes the golden receipt", async () => {
     const { resources } = await client.listResources();
     const uris = resources.map((r) => r.uri);

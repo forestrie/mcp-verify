@@ -105,6 +105,18 @@ export const TrustRootSchema = z
   )
   .describe("Which anchor you are willing to trust");
 
+/** The four tool names, in registration order — the one list `server.ts`
+ *  registers from and `cli.ts`'s `--help` prints, so the two cannot drift.
+ *  `test/node/help.test.ts` asserts `--help` names exactly what
+ *  `tools/list` returns. */
+export const TOOL_NAMES = [
+  "verify_receipt",
+  "verify_grant_receipt",
+  "decode_receipt",
+  "verify_self",
+] as const;
+export type ToolName = (typeof TOOL_NAMES)[number];
+
 /* ---------------------------- inputs ---------------------------- */
 
 export const verifyReceiptInputShape = {

@@ -119,6 +119,55 @@ seconds, with no account. It lives in
 [`@forestrie/mcp-resolve`'s README](https://github.com/forestrie/mcp-resolve#a-worked-example-one-receipt-end-to-end),
 because fetching is that package's job, not this one's.
 
+## Bundled resources, and the two calls they make runnable
+
+The tarball ships its fixtures as `forestrie://fixtures/…` MCP resources,
+so an agent that holds nothing of its own can run a real verification.
+Two calls reach a pass from resources alone; both are asserted by
+`test/node/mcp-smoke.test.ts`.
+
+**A grant receipt at the genesis root** — `verify_grant_receipt` with:
+
+| Argument         | Resource                                                                         |
+| ---------------- | -------------------------------------------------------------------------------- |
+| `receipt`        | `golden/grant-receipt.cbor`                                                      |
+| `committedGrant` | `golden/committed-grant.cbor` (derived from `golden/manifest.json` at read time) |
+| `entryId`        | the text of `golden/entry-id.txt`                                                |
+| `trust`          | `{root: "genesis", genesis: golden/grant-genesis.cbor}`                          |
+
+Result: `verify-grant: PASS · root=genesis · sealing ok, split-view not
+answered at this root, append-authority ok, attribution ok`.
+
+**A payload receipt at an accumulator root, offline, against a real
+anchor** — `verify_receipt` with the lane-A bundle
+([fixtures/lane-a/PROVENANCE.md](fixtures/lane-a/PROVENANCE.md)): a real
+receipt from a public lane and the accumulator the univocity contract had
+published for its log at block 46770471, captured by an independent chain
+read.
+
+| Argument  | Resource                                                            |
+| --------- | ------------------------------------------------------------------- |
+| `receipt` | `lane-a/receipt.cbor`                                               |
+| `payload` | `lane-a/statement.cose`                                             |
+| `entryId` | the text of `lane-a/entry-id.txt`                                   |
+| `trust`   | `{root: "known-accumulator", accumulator: lane-a/accumulator.cbor}` |
+
+Result: `verify: PASS · root=known-accumulator · sealing ok, split-view
+ok, append-authority ok, attribution ok`, with `anchor.matchedPeak` set.
+Unlike the `demo`'s self-derived snapshot, this anchor is the contract's
+published state, so the split-view answer is evidence as of that block.
+The same receipt passes under `{root: "known-log-key", keyXy: {b64: <text
+of lane-a/log-key.xy.b64>}}` and reports `delegation_invalid` under
+`{root: "genesis", genesis: lane-a/genesis.cbor}`, because its log is a
+grandchild of the forest root ([docs/self-registration.md](docs/self-registration.md)).
+
+A resource's bytes are passed back as `{b64: <the blob>}`; a text
+resource such as `lane-a/log-key.xy.b64` is base64 text already, so its
+text goes in `b64` as is. `golden/burial/public-key.xy.b64` offers the
+burial chain's root key the same way, so `checkpoint-chain` can be driven
+from resources — to its documented negative verdict, since the burial
+bundle ships no leaf preimage.
+
 ## Registry
 
 This server is listed as `dev.forestrie/verify` in the

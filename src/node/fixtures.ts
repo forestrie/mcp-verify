@@ -58,6 +58,38 @@ export type BurialManifest = {
   receiptSha256: string;
 };
 
+/** The lane-A anchored bundle's manifest (`fixtures/lane-a/manifest.json`):
+ *  a real receipt and the real accumulator the chain published for its
+ *  log, frozen — the one shipped pair under which an accumulator root
+ *  runs offline against an independent anchor. See its PROVENANCE.md. */
+export type LaneAManifest = {
+  comment: string;
+  capturedAt: string;
+  baseUrl: string;
+  bootstrapLogId: string;
+  logId: string;
+  entryId: string;
+  massifHeight: number;
+  contentHashSha256: string;
+  chainId: number;
+  univocity: string;
+  accumulatorBlockNumber: number;
+  accumulatorBlockHash: string;
+  accumulatorSize: number;
+  files: Record<string, string>;
+};
+
+/** The six files of the lane-A bundle, each a `forestrie://fixtures/lane-a/…`
+ *  resource; `manifest.json` is the seventh. */
+export const LANE_A_FILES = [
+  "receipt.cbor",
+  "statement.cose",
+  "entry-id.txt",
+  "log-key.xy.b64",
+  "genesis.cbor",
+  "accumulator.cbor",
+] as const;
+
 export const GOLDEN_MANIFEST = JSON.parse(
   readFixtureText("golden/manifest.json"),
 ) as GoldenManifest;
@@ -65,6 +97,10 @@ export const GOLDEN_MANIFEST = JSON.parse(
 export const BURIAL_MANIFEST = JSON.parse(
   readFixtureText("golden/burial/manifest.json"),
 ) as BurialManifest;
+
+export const LANE_A_MANIFEST = JSON.parse(
+  readFixtureText("lane-a/manifest.json"),
+) as LaneAManifest;
 
 export function fromHex(hex: string): Uint8Array {
   const clean = hex.replace(/^0x/, "");
