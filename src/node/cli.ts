@@ -6,7 +6,8 @@
  *   demo               → run two trust roots over the bundled fixtures.
  *   verify --self      → verify this package's own release-time
  *                        self-registration receipt against the bundled log
- *                        owner key. Exit 2, not 1,
+ *                        owner key, or under `--root genesis` to see the
+ *                        documented delegation_invalid. Exit 2, not 1,
  *                        when `fixtures/self/` is absent — the normal state
  *                        for a checkout that is not itself the published
  *                        tarball, not a verification failure.
@@ -31,7 +32,7 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { PACKAGE_VERSION, RECEIPT_VERIFY_VERSION } from "../core/index.js";
 import { runDemo } from "./demo.js";
-import { runVerifySelf } from "./self-cli.js";
+import { parseSelfRootFlag, runVerifySelf } from "./self-cli.js";
 import { createServer } from "./server.js";
 
 const HELP = `forestrie-mcp-verify ${PACKAGE_VERSION}
@@ -44,6 +45,8 @@ USAGE
   forestrie-mcp-verify demo           run two trust roots over the bundled fixtures
   forestrie-mcp-verify verify --self  verify this package's own release
                                        registration against the bundled log key
+      [--root known-log-key|genesis]   (genesis reports delegation_invalid:
+                                       docs/self-registration.md)
   forestrie-mcp-verify --help
   forestrie-mcp-verify --version
 
@@ -97,7 +100,15 @@ export async function main(argv: readonly string[]): Promise<number> {
 
   if (verb === "verify") {
     if (args.includes("--self")) {
-      return runVerifySelf(out);
+      const flag = parseSelfRootFlag(args);
+      if (!flag.ok) {
+        process.stderr.write(`${flag.message}\n`);
+        return 1;
+      }
+      return runVerifySelf(
+        out,
+        flag.root !== undefined ? { root: flag.root } : {},
+      );
     }
     process.stderr.write(
       "forestrie-mcp-verify: `verify` currently supports only --self. " +

@@ -199,6 +199,117 @@ describe("tools/call — a real verification over the bundled fixtures", () => {
     expect(content[0]?.text).toContain("NOT verified");
   });
 
+  it("base64 is accepted as an alias of b64 on every byte field, with the same result", async () => {
+    const res = await client.callTool({
+      name: "verify_grant_receipt",
+      arguments: {
+        receipt: { base64: b64(readFixture("golden/grant-receipt.cbor")) },
+        committedGrant: { base64: b64(goldenCommittedGrant()) },
+        entryId: goldenEntryId(),
+        trust: {
+          root: "genesis",
+          genesis: { base64: b64(readFixture("golden/grant-genesis.cbor")) },
+        },
+      },
+    });
+    expect(res.isError).toBeFalsy();
+    expect((res.structuredContent as { ok: boolean }).ok).toBe(true);
+  });
+
+  it("a wrong byte shape is refused at the field, naming the accepted shapes", async () => {
+    const res = await client.callTool({
+      name: "verify_grant_receipt",
+      arguments: {
+        receipt: { bytes: "AAAA" },
+        committedGrant: { b64: b64(goldenCommittedGrant()) },
+        entryId: goldenEntryId(),
+        trust: { root: "known-log-key", keyXy: { hex: "00" } },
+      },
+    });
+    expect(res.isError).toBe(true);
+    const text = (res.content as { text: string }[])[0]?.text ?? "";
+    expect(text).toContain("at receipt");
+    expect(text).toContain("at trust.keyXy");
+    expect(text).toContain("{b64: <standard base64>}");
+    expect(text).toContain("{path:");
+    expect(text).not.toMatch(/Invalid input at (trust|receipt)$/m);
+  });
+
+  it("an unknown root names the four roots", async () => {
+    const res = await client.callTool({
+      name: "verify_receipt",
+      arguments: {
+        receipt: { b64: "AAAA" },
+        payload: { b64: "AAAA" },
+        entryId: goldenEntryId(),
+        trust: { root: "nope" },
+      },
+    });
+    expect(res.isError).toBe(true);
+    const text = (res.content as { text: string }[])[0]?.text ?? "";
+    expect(text).toContain(
+      "trust.root must be one of genesis, known-log-key, known-accumulator, checkpoint-chain",
+    );
+  });
+
+  it("every byte field's advertised description names the accepted shapes", async () => {
+    const { tools } = await client.listTools();
+    const seen: string[] = [];
+    const walk = (node: unknown, path: string): void => {
+      if (node === null || typeof node !== "object") return;
+      const obj = node as Record<string, unknown>;
+      const anyOf = obj["anyOf"];
+      if (Array.isArray(anyOf)) {
+        const keys = anyOf.flatMap((v) =>
+          Object.keys(
+            ((v as { properties?: Record<string, unknown> }).properties ??
+              {}) as object,
+          ),
+        );
+        if (keys.includes("b64") && keys.includes("path")) {
+          seen.push(path);
+          expect(keys).toContain("base64");
+          expect(String(obj["description"])).toContain(
+            "{b64: <standard base64>}",
+          );
+          expect(String(obj["description"])).toContain("{path:");
+          return;
+        }
+      }
+      for (const [k, v] of Object.entries(obj)) walk(v, `${path}.${k}`);
+    };
+    for (const t of tools) walk(t.inputSchema, t.name);
+    // receipt/payload/committedGrant/trust.* across the four tools
+    expect(seen.length).toBeGreaterThanOrEqual(8);
+  });
+
+  it("an accumulator that does not decode is a structured parse failure, like a bad keyXy — not a thrown message", async () => {
+    const res = await client.callTool({
+      name: "verify_grant_receipt",
+      arguments: {
+        receipt: { b64: b64(readFixture("golden/grant-receipt.cbor")) },
+        committedGrant: { b64: b64(goldenCommittedGrant()) },
+        entryId: goldenEntryId(),
+        trust: { root: "known-accumulator", accumulator: { b64: "AQIDBA==" } },
+      },
+    });
+    expect(res.isError).toBeFalsy();
+    const structured = res.structuredContent as {
+      ok: boolean;
+      stage: string;
+      reason: string;
+      root: string;
+    };
+    expect(structured.ok).toBe(false);
+    expect(structured.stage).toBe("parse");
+    expect(structured.root).toBe("known-accumulator");
+    expect(structured.reason).toContain(
+      "accumulator is not an encodeKnownAccumulator snapshot (4 bytes)",
+    );
+    const text = (res.content as { text: string }[])[0]?.text ?? "";
+    expect(text).toContain("FAILED at parse");
+  });
+
   it("a bad input is a TOOL error, not a verification failure", async () => {
     const res = await client.callTool({
       name: "decode_receipt",

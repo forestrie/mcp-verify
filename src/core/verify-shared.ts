@@ -149,7 +149,21 @@ export async function verifyAtKnownAccumulator(input: {
   inner: Uint8Array;
   accumulatorBytes: Uint8Array;
 }): Promise<AnchoredOutcome> {
-  const snapshot = decodeKnownAccumulator(input.accumulatorBytes);
+  // A snapshot that does not decode is an input error, reported as a
+  // structured `stage=parse` result like a bad `keyXy` or `genesis` —
+  // not the library's bare throw, which used to reach the caller as an
+  // unprefixed message while the other two roots' bad bytes arrived as
+  // a result. "Your root bytes are wrong" always arrives the same way.
+  let snapshot: ReturnType<typeof decodeKnownAccumulator>;
+  try {
+    snapshot = decodeKnownAccumulator(input.accumulatorBytes);
+  } catch (err) {
+    throw new VerifyInputError(
+      `accumulator is not an encodeKnownAccumulator snapshot (${input.accumulatorBytes.length} bytes): ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
   const result = await verifyReceiptOfflineAgainstKnownAccumulator({
     receiptCbor: input.receiptCbor,
     idtimestampBe8: input.idtimestampBe8,

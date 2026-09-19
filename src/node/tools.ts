@@ -11,75 +11,105 @@
  */
 import { z } from "zod";
 
+/** The accepted shapes, named in every byte field's description and in the
+ *  validation error for a wrong shape — the SDK renders a plain `z.union`
+ *  failure as "Invalid input at <field>", which tells a caller nothing
+ *  about what was wanted. `base64` is `@forestrie/mcp-resolve`'s original
+ *  name for the same thing and is accepted here permanently. */
+export const BYTES_SHAPES =
+  "{b64: <standard base64>} (base64 is accepted as an alias), or {path: <a file the local server reads>}";
+
 /** Bytes cross the MCP boundary as base64; stdio additionally accepts a path. */
 export const BytesInputSchema = z
-  .union([
-    z.object({ b64: z.string().min(1).describe("standard base64") }),
-    z.object({
-      path: z
-        .string()
-        .min(1)
-        .describe("filesystem path, read by the stdio adapter"),
-    }),
-  ])
-  .describe("Bytes as base64, or a path the local server reads");
+  .union(
+    [
+      z.object({ b64: z.string().min(1).describe("standard base64") }),
+      z.object({
+        base64: z.string().min(1).describe("standard base64 (alias of b64)"),
+      }),
+      z.object({
+        path: z
+          .string()
+          .min(1)
+          .describe("filesystem path, read by the stdio adapter"),
+      }),
+    ],
+    { error: `expected bytes as ${BYTES_SHAPES}` },
+  )
+  .describe(`Bytes as ${BYTES_SHAPES}`);
+
+/** A byte field whose description names the accepted shapes as well as
+ *  what the bytes are — a field-level `.describe()` replaces the union's
+ *  own text in the advertised schema, so the shapes must be restated
+ *  (previously they survived only on `trust.genesis`, the one field
+ *  without its own description). */
+export function bytesInput(what: string) {
+  return BytesInputSchema.describe(`${what} — ${BYTES_SHAPES}`);
+}
 
 export const TrustRootSchema = z
-  .discriminatedUnion("root", [
-    z
-      .object({
-        root: z.literal("genesis"),
-        genesis: BytesInputSchema,
-      })
-      .describe(
-        "Trust the log's genesis document. Answers sealing and attribution; " +
-          "cannot answer split-view.",
-      ),
-    z
-      .object({
-        root: z.literal("known-log-key"),
-        keyXy: BytesInputSchema.describe("raw 64-byte P-256 x||y"),
-      })
-      .describe(
-        "Trust a log owner key you obtained out of band. Same questions as " +
-          "genesis; the key-to-log binding is asserted, not proven.",
-      ),
-    z
-      .object({
-        root: z.literal("known-accumulator"),
-        accumulator: BytesInputSchema.describe(
-          "encodeKnownAccumulator snapshot bytes",
+  .discriminatedUnion(
+    "root",
+    [
+      z
+        .object({
+          root: z.literal("genesis"),
+          genesis: bytesInput("the forest's genesis document"),
+        })
+        .describe(
+          "Trust the log's genesis document. Answers sealing and attribution; " +
+            "cannot answer split-view.",
         ),
-        massif: BytesInputSchema.optional(),
-        consistencyProof: BytesInputSchema.optional(),
-      })
-      .describe(
-        "Trust an on-chain accumulator snapshot you hold. The only root that " +
-          "answers split-view. Checks no signature locally — the anchor is the " +
-          "authority.",
-      ),
-    z
-      .object({
-        root: z.literal("checkpoint-chain"),
-        checkpoints: z
-          .array(BytesInputSchema)
-          .min(1)
-          .describe("retained .sth objects in ascending massif order"),
-        genesis: BytesInputSchema.optional(),
-        keyXy: BytesInputSchema.optional(),
-      })
-      .describe(
-        "Fold a retained checkpoint chain and match any authenticated link. " +
-          "Answers split-view. Needs genesis or keyXy to root the first link.",
-      ),
-  ])
+      z
+        .object({
+          root: z.literal("known-log-key"),
+          keyXy: bytesInput("raw 64-byte P-256 x||y"),
+        })
+        .describe(
+          "Trust a log owner key you obtained out of band. Same questions as " +
+            "genesis; the key-to-log binding is asserted, not proven.",
+        ),
+      z
+        .object({
+          root: z.literal("known-accumulator"),
+          accumulator: bytesInput("encodeKnownAccumulator snapshot bytes"),
+          massif: BytesInputSchema.optional(),
+          consistencyProof: BytesInputSchema.optional(),
+        })
+        .describe(
+          "Trust an on-chain accumulator snapshot you hold. The only root that " +
+            "answers split-view. Checks no signature locally — the anchor is the " +
+            "authority.",
+        ),
+      z
+        .object({
+          root: z.literal("checkpoint-chain"),
+          checkpoints: z
+            .array(BytesInputSchema)
+            .min(1)
+            .describe(
+              `retained .sth objects in ascending massif order, each ${BYTES_SHAPES}`,
+            ),
+          genesis: BytesInputSchema.optional(),
+          keyXy: BytesInputSchema.optional(),
+        })
+        .describe(
+          "Fold a retained checkpoint chain and match any authenticated link. " +
+            "Answers split-view. Needs genesis or keyXy to root the first link.",
+        ),
+    ],
+    {
+      error:
+        "trust.root must be one of genesis, known-log-key, known-accumulator, checkpoint-chain",
+    },
+  )
   .describe("Which anchor you are willing to trust");
 
 /* ---------------------------- inputs ---------------------------- */
 
 export const verifyReceiptInputShape = {
-  receipt: BytesInputSchema.describe("the COSE receipt"),
-  payload: BytesInputSchema.describe(
+  receipt: bytesInput("the COSE receipt"),
+  payload: bytesInput(
     "the EXACT registered payload bytes whose SHA-256 is the leaf ContentHash",
   ),
   entryId: z
@@ -90,8 +120,8 @@ export const verifyReceiptInputShape = {
 };
 
 export const verifyGrantReceiptInputShape = {
-  receipt: BytesInputSchema.describe("the COSE receipt"),
-  committedGrant: BytesInputSchema.describe(
+  receipt: bytesInput("the COSE receipt"),
+  committedGrant: bytesInput(
     "Forestrie-Grant COSE Sign1, or raw grant payload CBOR",
   ),
   entryId: z
@@ -103,7 +133,7 @@ export const verifyGrantReceiptInputShape = {
 };
 
 export const decodeReceiptInputShape = {
-  receipt: BytesInputSchema.describe("the COSE receipt to render"),
+  receipt: bytesInput("the COSE receipt to render"),
 };
 
 /**
@@ -132,9 +162,7 @@ export const VerifySelfRootSchema = z
     z
       .object({
         root: z.literal("known-accumulator"),
-        accumulator: BytesInputSchema.describe(
-          "encodeKnownAccumulator snapshot bytes",
-        ),
+        accumulator: bytesInput("encodeKnownAccumulator snapshot bytes"),
         massif: BytesInputSchema.optional(),
         consistencyProof: BytesInputSchema.optional(),
       })
