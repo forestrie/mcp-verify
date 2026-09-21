@@ -16,7 +16,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 /** Bump deliberately: every release registers its provenance with it. */
-export const FORESTRIE_CLI_VERSION = "0.8.1";
+export const FORESTRIE_CLI_VERSION = "0.9.0";
 
 /** The version-keyed scratch install root under `repoRoot`. */
 export function cliCacheDir(repoRoot, version = FORESTRIE_CLI_VERSION) {

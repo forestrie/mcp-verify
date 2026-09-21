@@ -12,7 +12,7 @@
  *
  * `parseReceipt` from `@forestrie/receipt-verify`, and
  * `decodeCborDeterministic` / `coseUnprotectedToMap` / `decodeCoseSign1` /
- * `CborTag` from `@forestrie/encoding@0.7.0`, are the only dependencies. The
+ * `CborTag` from `@forestrie/encoding@0.8.0`, are the only dependencies. The
  * label tables below are kept in sync with the authoritative registry:
  * [forestrie/protocol `spec/label-registry.md`](https://github.com/forestrie/protocol/blob/main/spec/label-registry.md).
  *

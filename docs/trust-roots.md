@@ -48,9 +48,11 @@ receipt contains: [TRANSPARENCY.md](../TRANSPARENCY.md).
   nor tile access, or when log growth has buried the receipt's peak. Each
   later link's signed consistency proof commits the earlier accumulator
   forward, so a match at any link is proof. This is the only fully offline
-  route for a buried receipt. A log whose early checkpoints predate
-  contiguous chaining reports `legacy_chain_break`; that is a property of the
-  log, not tamper.
+  route for a buried receipt. Every checkpoint carries its sealed tree size
+  under the signature (ADR-0066, `@forestrie/receipt-verify` 2.0.0); a link
+  without it, or whose declared origin does not continue the previous
+  link's sealed size, fails `size_mismatch`, and there is no legacy path
+  for checkpoints sealed before the label existed.
 
 ### The genesis document
 
