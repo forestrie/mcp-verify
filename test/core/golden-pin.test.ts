@@ -15,6 +15,8 @@ import { describe, expect, it } from "vitest";
 import {
   BURIAL_MANIFEST,
   GOLDEN_MANIFEST,
+  LANE_A_FILES,
+  LANE_A_MANIFEST,
   fixturePath,
   readFixture,
 } from "../../src/node/fixtures.js";
@@ -88,6 +90,37 @@ describe("the self-registration bundle (frozen bytes, test/fixtures/self-bundle)
   });
 });
 
+describe("the lane-A anchored bundle (frozen bytes, fixtures/lane-a)", () => {
+  it("every file matches manifest.json's sha256, and the manifest names exactly the six", () => {
+    expect(Object.keys(LANE_A_MANIFEST.files).sort()).toEqual(
+      [...LANE_A_FILES].sort(),
+    );
+    for (const name of LANE_A_FILES) {
+      expect(sha256(readFixture(`lane-a/${name}`)), name).toBe(
+        LANE_A_MANIFEST.files[name],
+      );
+    }
+  });
+
+  it("the manifest's coordinates are the ones the bytes were captured at", () => {
+    expect(LANE_A_MANIFEST.logId).toBe("e8345800-a747-4e62-9409-61622b836f1f");
+    expect(LANE_A_MANIFEST.bootstrapLogId).toBe(
+      "67876864-3b46-67ae-dcb3-13cc81624aa5",
+    );
+    expect(new TextDecoder().decode(readFixture("lane-a/entry-id.txt"))).toBe(
+      LANE_A_MANIFEST.entryId,
+    );
+    // The content hash a registrant queries with is the sha256 of the
+    // signed statement bytes — the manifest records it, and it must be
+    // the statement file's own digest.
+    expect(sha256(readFixture("lane-a/statement.cose"))).toBe(
+      LANE_A_MANIFEST.contentHashSha256,
+    );
+    expect(LANE_A_MANIFEST.chainId).toBe(84532);
+    expect(LANE_A_MANIFEST.accumulatorSize).toBe(11);
+  });
+});
+
 describe("the fixtures actually ship", () => {
   /**
    * The fixtures-as-MCP-resources promise is a packaging promise. The
@@ -111,6 +144,8 @@ describe("the fixtures actually ship", () => {
       "golden/burial/manifest.json",
       "golden/burial/burial-receipt.cbor",
       ...BURIAL_MANIFEST.checkpointFiles.map((f) => `golden/burial/${f}`),
+      "lane-a/manifest.json",
+      ...LANE_A_FILES.map((f) => `lane-a/${f}`),
     ];
     for (const rel of advertised) {
       expect(() => readFileSync(fixturePath(rel))).not.toThrow();
