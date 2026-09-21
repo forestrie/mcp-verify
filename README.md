@@ -143,7 +143,8 @@ anchor** — `verify_receipt` with the lane-A bundle
 ([fixtures/lane-a/PROVENANCE.md](fixtures/lane-a/PROVENANCE.md)): a real
 receipt from a public lane and the accumulator the univocity contract had
 published for its log at block 46770471, captured by an independent chain
-read.
+read. (That lane's content was reset on 2026-09-20; the bytes still verify,
+the URLs they came from no longer resolve.)
 
 | Argument  | Resource                                                            |
 | --------- | ------------------------------------------------------------------- |

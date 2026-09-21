@@ -25,6 +25,21 @@ are the same bytes `forestrie/mcp-resolve` freezes under
 `PROVENANCE.md` in each), copied here so the verifier's tarball can offer
 them as `forestrie://fixtures/lane-a/…` resources.
 
+## The lane these came from was reset on 2026-09-20
+
+Lane A's content was emptied and re-genesised on 2026-09-20 for the
+signed-checkpoint-size change (ADR-0066, devdocs plan-2609-10): the forest
+`67876864-…`, the publications log `e8345800-…` and this receipt's URL all
+answer 404 there now, and the univocity instance at `0x6787…f0ca` is no
+longer the lane's. **None of that changes what this bundle proves.** The
+bytes are a receipt, the statement it commits, the log owner's key, the
+forest genesis and an accumulator the contract published at block
+46770471; verification is arithmetic over those bytes and needs no lane.
+What is gone is the ability to re-fetch them, so the "where a user gets
+it" column above is history, not a route. A future re-capture against the
+new estate replaces the whole directory, as the regeneration section says;
+until then this is a frozen record of a real pair.
+
 ## What the pair proves, and what it does not
 
 `verify_receipt` over `receipt.cbor`, `statement.cose` and `entry-id.txt`
