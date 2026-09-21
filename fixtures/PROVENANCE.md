@@ -19,6 +19,21 @@ The bytes are also identical to those at canopy
 the fixtures have not moved between those two commits, which is the whole
 point of calling them frozen.
 
+## Regenerated 2026-09-20 for the signed checkpoint tree size (ADR-0066)
+
+Every file under `golden/` was replaced on 2026-09-20 with canopy's regenerated
+set (canopy main at `d7e7a61`, landed by canopy #255, devdocs plan-2609-10
+slice 04). A checkpoint now carries its sealed tree size under protected
+label `-65933`, the consistency proof must have exactly the shape the two
+sizes imply, and the protected header must be deterministic CBOR;
+`@forestrie/receipt-verify` 2.0.0 rejects a checkpoint without the label.
+The old bytes cannot be re-verified by the new library, so canopy
+regenerated the grant goldens with a fresh signing key (the manifest's
+`grantDataHex` changed with it) and the burial bundle with a new chain key
+and low-s signatures. The manifests' comments record the same. This
+package copied them byte-for-byte, as the rule below says, and nothing in
+`src/` reads any value that moved except through the manifests.
+
 ## What is here
 
 | File | What it is |

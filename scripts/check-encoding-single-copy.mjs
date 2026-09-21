@@ -20,7 +20,7 @@
  * SILENCES the exact skew this gate exists to detect, by rewriting a
  * transitive dep to a version its parent was never tested against. Today the
  * pin is naturally satisfiable — receipt-verify@1.0.0 depends on
- * @forestrie/encoding@0.7.0 exactly, and we declare 0.7.0 exactly, so there
+ * @forestrie/encoding@0.8.0 exactly, and we declare 0.8.0 exactly, so there
  * is exactly one copy without any coercion. If a future dependency drags a
  * second copy in, fix or drop that dependency (or wait for its bump), never
  * override.
@@ -31,7 +31,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 const root = process.argv[2] ?? process.cwd();
-const EXPECTED = "0.7.0"; // exact pin
+const EXPECTED = "0.8.0"; // exact pin
 const MAX_DEPTH = 12;
 
 /** version -> [realpath-ish paths] */

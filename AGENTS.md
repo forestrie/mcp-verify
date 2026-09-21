@@ -271,7 +271,7 @@ publish`. See `docs/self-registration.md`'s "Delegate before register"
   `delegate` call needs, `FORESTRIE_PUBLICATIONS_LOG_ID`, is documented
   alongside them there too.
 
-The "Register provenance" step resolves `@forestrie/forestrie-cli@0.8.1` from
+The "Register provenance" step resolves `@forestrie/forestrie-cli@0.9.0` from
 npm through `scripts/forestrie-cli-npm.mjs`; it downloads no release binary.
 
 ## Links must resolve without org access
