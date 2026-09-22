@@ -15,8 +15,8 @@ importers:
         specifier: 0.4.0
         version: 0.4.0
       '@forestrie/receipt-verify':
-        specifier: 2.0.0
-        version: 2.0.0
+        specifier: 2.1.0
+        version: 2.1.0
       '@modelcontextprotocol/sdk':
         specifier: 1.30.0
         version: 1.30.0(zod@4.5.4)
@@ -207,8 +207,8 @@ packages:
   '@forestrie/merklelog@0.4.0':
     resolution: {integrity: sha512-ShFyIfzNwQUCYzL2ytEe1CIyoYsBuNBMF1heLtQyXtf5cgBebCEjiOxJnwJSpo3jd9j/Em8GHTLu2JphfqY1GA==}
 
-  '@forestrie/receipt-verify@2.0.0':
-    resolution: {integrity: sha512-0dD6g6wtv7ep1jqRzeFmtI4HZxQqVNpQuWRr6mscde05UCxXvfGhuU2wF5Lu6P57ZftX1iMLJ+imOJg2JXo2XA==}
+  '@forestrie/receipt-verify@2.1.0':
+    resolution: {integrity: sha512-4Y8h0uIvpNRHtSjIQMAmQmcuMw9kRQ31TWNwj9mOKnesquQ/mZRJUpbOMZuKD6Cy3DWk5R5hs8Jom+KzEEX3qg==}
 
   '@hono/node-server@2.1.1':
     resolution: {integrity: sha512-ELuehkj5VCBdgEw9zs+ivkKwyzzUCSQuE96YmiPvn1ECBoZCczbFXJLeEGMTYjphP6gydh4pHMqEYPVMYUVgQg==}
@@ -1094,7 +1094,7 @@ snapshots:
 
   '@forestrie/merklelog@0.4.0': {}
 
-  '@forestrie/receipt-verify@2.0.0':
+  '@forestrie/receipt-verify@2.1.0':
     dependencies:
       '@forestrie/chain-rpc': 0.3.0
       '@forestrie/encoding': 0.8.0

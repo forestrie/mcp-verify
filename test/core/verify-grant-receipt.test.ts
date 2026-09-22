@@ -7,6 +7,10 @@
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import {
+  decodeCborDeterministic,
+  encodeCborDeterministic,
+} from "@forestrie/encoding";
 import { verifyGrantReceipt, VERIFIER } from "../../src/core/index.js";
 import {
   BURIAL_MANIFEST,
@@ -153,6 +157,62 @@ describe("verifyGrantReceipt — input validation is ours, not the reference's",
     expect(result.questions["split-view"].status).toBe(
       "not_answered_by_this_root",
     );
+  });
+
+  /**
+   * FOR-580: grant wire v0 keys 7 (`signer`) and 8 (`kind`) were retired
+   * before canopy admission started rejecting them, and the reference
+   * codecs (`@forestrie/encoding`, and as of `@forestrie/receipt-verify`
+   * 2.1.0 the COSE-embedded grant codec too) now refuse to decode either
+   * one rather than silently ignoring it. A committed grant that still
+   * carries one must fail here, not verify against stale wire shape.
+   */
+  it("a committed grant carrying the retired key 7 (signer) is rejected, not silently accepted", async () => {
+    const c = clean();
+    const decoded = decodeCborDeterministic(c.committedGrant) as Map<
+      number,
+      unknown
+    >;
+    const withRetiredKey = new Map(decoded);
+    withRetiredKey.set(7, new Uint8Array(33).fill(0x11));
+    const committedGrant = new Uint8Array(
+      encodeCborDeterministic(withRetiredKey),
+    );
+
+    const result = await verifyGrantReceipt({
+      receipt: c.receipt,
+      committedGrant,
+      entryId: c.entryId,
+      trust: { root: "genesis", genesis: GENESIS },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.stage).toBe("parse");
+    expect(result.reason).toMatch(/keys 7 \(signer\) and 8 \(kind\)/);
+  });
+
+  it("a committed grant carrying the retired key 8 (kind) is rejected the same way", async () => {
+    const c = clean();
+    const decoded = decodeCborDeterministic(c.committedGrant) as Map<
+      number,
+      unknown
+    >;
+    const withRetiredKey = new Map(decoded);
+    withRetiredKey.set(8, 1);
+    const committedGrant = new Uint8Array(
+      encodeCborDeterministic(withRetiredKey),
+    );
+
+    const result = await verifyGrantReceipt({
+      receipt: c.receipt,
+      committedGrant,
+      entryId: c.entryId,
+      trust: { root: "genesis", genesis: GENESIS },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.stage).toBe("parse");
+    expect(result.reason).toMatch(/keys 7 \(signer\) and 8 \(kind\)/);
   });
 
   it("a raw grant payload with no entryId is a clean parse failure naming the remedy", async () => {
