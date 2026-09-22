@@ -15,7 +15,7 @@ export const PACKAGE_VERSION = "0.5.0";
 
 /** Keep in sync with package.json#dependencies["@forestrie/receipt-verify"].
  *  Asserted by test/core/verify-grant-receipt.test.ts. */
-export const RECEIPT_VERIFY_VERSION = "2.0.0";
+export const RECEIPT_VERIFY_VERSION = "2.1.0";
 
 /** Keep in sync with package.json#dependencies["@forestrie/encoding"]. */
 export const ENCODING_VERSION = "0.8.0";

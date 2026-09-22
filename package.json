@@ -85,7 +85,7 @@
   "dependencies": {
     "@forestrie/encoding": "0.8.0",
     "@forestrie/merklelog": "0.4.0",
-    "@forestrie/receipt-verify": "2.0.0",
+    "@forestrie/receipt-verify": "2.1.0",
     "@modelcontextprotocol/sdk": "1.30.0",
     "zod": "^4.5.4"
   },
