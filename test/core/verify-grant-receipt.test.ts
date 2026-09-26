@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import {
   decodeCborDeterministic,
   encodeCborDeterministic,
+  encodeCoseSign1Raw,
 } from "@forestrie/encoding";
 import { verifyGrantReceipt, VERIFIER } from "../../src/core/index.js";
 import {
@@ -212,6 +213,92 @@ describe("verifyGrantReceipt — input validation is ours, not the reference's",
 
     expect(result.ok).toBe(false);
     expect(result.stage).toBe("parse");
+    expect(result.reason).toMatch(/keys 7 \(signer\) and 8 \(kind\)/);
+  });
+
+  /**
+   * FOR-580, pinning the COSE path specifically: mcp-verify#27's two tests
+   * above only ever exercise the raw-payload retry, because
+   * `decodeCommittedGrant` used to swallow ANY `decodeForestrieGrantCose`
+   * failure and retry the same bytes as raw payload CBOR — which for a
+   * Sign1 four-tuple always failed with "must be a CBOR map", a message
+   * that names neither key. Built by decoding the golden committed grant,
+   * injecting the retired key into the embedded grant map, and wrapping it
+   * in the same Forestrie-Grant COSE Sign1 four-tuple
+   * `decodeForestrieGrantCose` reads: `[protected, unprotected, payload,
+   * signature]`, unprotected header label -65538 holding the embedded grant
+   * CBOR, payload the digest of it (`decode-forestrie-grant-cose.js` reads:
+   * no signature check happens anywhere in that decode — it is pure
+   * structure and a digest equality — so a signature need not verify, and
+   * empty bytes stand in for both the protected header and the signature).
+   */
+  async function coseWrapCommittedGrant(
+    mutate: (m: Map<number, unknown>) => void,
+  ): Promise<Uint8Array> {
+    const c = clean();
+    const decoded = decodeCborDeterministic(c.committedGrant) as Map<
+      number,
+      unknown
+    >;
+    const withRetiredKey = new Map(decoded);
+    mutate(withRetiredKey);
+    const embedded = new Uint8Array(encodeCborDeterministic(withRetiredKey));
+    const payload = new Uint8Array(
+      await crypto.subtle.digest("SHA-256", embedded),
+    );
+    // HEADER_FORESTRIE_GRANT_V0 = -65538 (receipt-verify's
+    // forest-genesis-labels.ts); not re-exported from the package's public
+    // entry point, so pinned here by value.
+    const unprotected = new Map<number, unknown>([[-65538, embedded]]);
+    return encodeCoseSign1Raw(
+      new Uint8Array(0),
+      unprotected,
+      payload,
+      new Uint8Array(0),
+    );
+  }
+
+  it("a COSE-wrapped committed grant carrying the retired key 7 (signer) fails on the COSE path", async () => {
+    const c = clean();
+    const committedGrant = await coseWrapCommittedGrant((m) =>
+      m.set(7, new Uint8Array(33).fill(0x11)),
+    );
+
+    const result = await verifyGrantReceipt({
+      receipt: c.receipt,
+      committedGrant,
+      entryId: c.entryId,
+      trust: { root: "genesis", genesis: GENESIS },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.stage).toBe("parse");
+    // The raw-payload retry's message reads "neither a Forestrie-Grant COSE
+    // Sign1 nor a raw grant payload"; this one names the COSE codec
+    // directly, proving `decodeCommittedGrant` did not swallow the COSE
+    // failure and retry these bytes as raw payload CBOR.
+    expect(result.reason).toMatch(
+      /^committedGrant is a Forestrie-Grant COSE Sign1 but failed to decode:/,
+    );
+    expect(result.reason).toMatch(/keys 7 \(signer\) and 8 \(kind\)/);
+  });
+
+  it("a COSE-wrapped committed grant carrying the retired key 8 (kind) fails on the COSE path", async () => {
+    const c = clean();
+    const committedGrant = await coseWrapCommittedGrant((m) => m.set(8, 1));
+
+    const result = await verifyGrantReceipt({
+      receipt: c.receipt,
+      committedGrant,
+      entryId: c.entryId,
+      trust: { root: "genesis", genesis: GENESIS },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.stage).toBe("parse");
+    expect(result.reason).toMatch(
+      /^committedGrant is a Forestrie-Grant COSE Sign1 but failed to decode:/,
+    );
     expect(result.reason).toMatch(/keys 7 \(signer\) and 8 \(kind\)/);
   });
 
