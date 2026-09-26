@@ -3,7 +3,7 @@
   "name": "dev.forestrie/verify",
   "title": "Verify SCITT receipts from Forestrie transparency logs, offline",
   "description": "Verify a SCITT receipt under a trust root you hold — offline, no backend, no key, no network",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "repository": {
     "url": "https://github.com/forestrie/mcp-verify",
     "source": "github"
@@ -14,7 +14,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@forestrie/mcp-verify",
-      "version": "0.5.1",
+      "version": "0.5.2",
       "transport": {
         "type": "stdio"
       },
