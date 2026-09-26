@@ -22,7 +22,11 @@ import {
   verifyGrantReceiptOfflineWithKeys,
   type ReceiptVerifyResult,
 } from "@forestrie/receipt-verify";
-import { decodeGrantPayload, type Grant } from "@forestrie/encoding";
+import {
+  decodeCborDeterministic,
+  decodeGrantPayload,
+  type Grant,
+} from "@forestrie/encoding";
 import type { VerifyResult } from "./result.js";
 import type { TrustRoot } from "./root.js";
 import {
@@ -46,26 +50,60 @@ export type VerifyGrantReceiptInput = {
 };
 
 /**
+ * Does the top-level CBOR item have Forestrie-Grant COSE Sign1's shape — a
+ * 4-element array? A raw grant payload is always a CBOR map
+ * (`grant-codec.ts`'s `encodeGrantPayload`/`encodeGrantPayloadV0Canonical`
+ * both emit one), so an array of 4 can only ever be a Sign1 four-tuple, never
+ * raw payload CBOR wearing COSE's clothes. Used to decide whether a
+ * `decodeForestrieGrantCose` failure is real (the bytes claimed to be COSE
+ * and were not valid) or just a sign the bytes were never COSE to begin with.
+ */
+function looksLikeForestrieGrantCose(bytes: Uint8Array): boolean {
+  try {
+    const raw: unknown = decodeCborDeterministic(bytes);
+    return Array.isArray(raw) && raw.length === 4;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Decode grant bytes: Forestrie-Grant COSE Sign1 first, raw payload CBOR
  * second — the same order and the same fallback as
  * `forestrie-cli/src/lib/verify-inputs.ts:decodeGrantBytes`, so the two agree
  * on what a caller may hand them.
+ *
+ * A bytestring shaped like a Sign1 four-tuple is dispatched to
+ * `decodeForestrieGrantCose` and stays there: if it fails (FOR-580: the
+ * embedded grant carries a retired key 7 or 8, say), that failure is
+ * surfaced directly rather than swallowed and retried as raw payload CBOR.
+ * The old code caught and retried on ANY COSE decode failure, which for a
+ * COSE-shaped input meant retrying `decodeGrantPayload` against the same
+ * four-element array — always a "must be a CBOR map" failure that named
+ * neither the real defect nor the retired key, masking a genuine COSE-path
+ * rejection behind a generic "neither COSE nor raw payload" message.
  */
 function decodeCommittedGrant(
   bytes: Uint8Array,
   entryId: string | undefined,
 ): { grant: Grant; idtimestampBe8: Uint8Array } {
-  try {
-    const decoded = decodeForestrieGrantCose(bytes);
-    return {
-      grant: decoded.grant,
-      idtimestampBe8:
-        entryId !== undefined
-          ? entryIdHexToIdtimestampBe8(entryId)
-          : decoded.idtimestampBe8,
-    };
-  } catch {
-    // Not a Forestrie-Grant COSE Sign1 — fall through to raw payload CBOR.
+  if (looksLikeForestrieGrantCose(bytes)) {
+    try {
+      const decoded = decodeForestrieGrantCose(bytes);
+      return {
+        grant: decoded.grant,
+        idtimestampBe8:
+          entryId !== undefined
+            ? entryIdHexToIdtimestampBe8(entryId)
+            : decoded.idtimestampBe8,
+      };
+    } catch (err) {
+      throw new VerifyInputError(
+        `committedGrant is a Forestrie-Grant COSE Sign1 but failed to decode: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
   }
   let grant: Grant;
   try {
