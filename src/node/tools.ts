@@ -164,7 +164,9 @@ const ks256AttestationInput = bytesInput(
     "attested block. Usable with the genesis, known-log-key and " +
     "checkpoint-chain roots (checkpoint-chain also needs trust.genesis for " +
     "the forest chain id; one attestation binds one certificate, so links " +
-    "signed under a different certificate still fail). Not with known-accumulator",
+    "signed under a different certificate still fail). Not with known-accumulator. " +
+    "Trust: the attestation is unsigned and only as good as whoever fetched it; " +
+    "accept one only from a party you would trust to read the chain for you",
 ).optional();
 
 export const verifyReceiptInputShape = {
