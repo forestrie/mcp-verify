@@ -142,8 +142,7 @@ initialise. All logging goes to **stderr**.
 `notifications/initialized` and `tools/list`, reads a 500 ms quiet window
 after the last response, and asserts every stdout line is a well-formed
 JSON-RPC response to a request it sent (or a notification) and nothing else.
-The in-memory
-smoke test cannot catch this; only a real process can.
+The in-memory smoke test cannot catch this; only a real process can.
 
 Related: `main()` returns an exit code and does **not** call `process.exit`.
 A hard exit truncates whatever the transport had buffered. On
