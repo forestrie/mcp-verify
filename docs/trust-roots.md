@@ -109,8 +109,11 @@ how the label-1000 delegation certificate is checked against the root.
   The verdict is then **valid under the contract's signers at the attested
   block** and not a statement about the contract's current owners. The result
   carries a `ks256Attestation` block (chain id, block number and hash,
-  address) so a caller sees the narrower guarantee. For an EOA root the
-  attestation is not consulted; the block is still echoed if you supplied one.
+  address) so a caller sees the narrower guarantee. The attested
+  block is reported only when the attestation was needed: the verify is
+  re-run without it, and if it still passes (an EOA root, by ecrecover) no
+  block is reported and a `ks256_attestation_not_consulted` diagnostic says
+  the attestation was not used.
 - **Chain binding.** An attestation is accepted only when its chain id equals
   the forest's genesis chain: the same Safe address on another chain can have
   other owners. With `genesis` the chain comes from that document. With

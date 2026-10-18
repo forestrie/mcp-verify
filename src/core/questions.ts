@@ -63,6 +63,8 @@ export type QuestionsInput = {
   reason?: string | undefined;
   /** An ERC-1271 attestation was supplied (and the run passed). */
   attested?: boolean | undefined;
+  /** An attestation was supplied but not needed (the root verified by ecrecover). */
+  attestationUnused?: boolean | undefined;
 };
 
 /** Does this failure reason come from the KS256 root path? */
@@ -301,11 +303,19 @@ export function diagnosticsFor(input: QuestionsInput): Diagnostic[] {
     out.push({
       code: "ks256_attested_guarantee",
       message:
-        "An ERC-1271 attestation was supplied. If the root is a contract, " +
-        "the delegation is valid under the contract's signers AT THE ATTESTED BLOCK " +
-        "(a narrower guarantee than an EOA or ES256 root); this verifier never " +
-        "called the chain and trusts the attestation as the fetching party's chain read. " +
-        "For an EOA root ecrecover decides and the attestation is not consulted.",
+        "The delegation certificate verified only with the supplied ERC-1271 attestation: " +
+        "the contract root is valid under the contract's signers AT THE ATTESTED BLOCK " +
+        "(a narrower guarantee than an EOA or ES256 root). This verifier never called the " +
+        "chain and trusts the attestation as the fetching party's chain read.",
+    });
+  }
+
+  if (input.ok && input.attestationUnused === true) {
+    out.push({
+      code: "ks256_attestation_not_consulted",
+      message:
+        "An ERC-1271 attestation was supplied but not needed: the root verified by " +
+        "ecrecover (an EOA), so no attested-block caveat applies.",
     });
   }
 

@@ -268,7 +268,7 @@ const Ks256AttestationReportSchema = z
     address: z.string(),
   })
   .describe(
-    "present when an ERC-1271 attestation was supplied and the run passed: " +
+    "present only when a supplied ERC-1271 attestation was needed for the run to pass: " +
       "a contract root is valid under its signers at THIS block only",
   );
 

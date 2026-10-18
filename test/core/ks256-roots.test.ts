@@ -87,6 +87,44 @@ describe("KS256 genesis root", () => {
   });
 });
 
+describe("attestation used versus not consulted", () => {
+  it("reports the attested block and guarantee only when the attestation was needed", async () => {
+    const fx = await payloadFixture({ contractRoot: true });
+    const r = await run(
+      fx,
+      { root: "genesis", genesis: fx.genesis },
+      encodedAttestationFor(fx),
+    );
+    expect(r.ok).toBe(true);
+    expect(r.ks256Attestation?.blockNumber).toBe("1234");
+    const codes = r.diagnostics.map((d) => d.code);
+    expect(codes).toContain("ks256_attested_guarantee");
+    expect(codes).not.toContain("ks256_attestation_not_consulted");
+  });
+
+  it.each([
+    [
+      "genesis",
+      (fx: Ks256Fixture): TrustRoot => ({
+        root: "genesis",
+        genesis: fx.genesis,
+      }),
+    ],
+    ["known-log-key", (fx: Ks256Fixture) => known(fx, true)],
+  ])(
+    "an EOA root under %s verifies by ecrecover and the attestation is not used",
+    async (_n, trust) => {
+      const fx = await payloadFixture();
+      const r = await run(fx, trust(fx), encodedAttestationFor(fx));
+      expect(r.ok).toBe(true);
+      expect(r.ks256Attestation).toBeUndefined();
+      const codes = r.diagnostics.map((d) => d.code);
+      expect(codes).toContain("ks256_attestation_not_consulted");
+      expect(codes).not.toContain("ks256_attested_guarantee");
+    },
+  );
+});
+
 describe("KS256 known-log-key (ks256Address)", () => {
   it("verifies an EOA address", async () => {
     const fx = await payloadFixture();

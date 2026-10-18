@@ -150,18 +150,31 @@ export function planAttestation(
   return plan;
 }
 
-/** The provenance block for a passing run that was given an attestation. */
-export function attestationReport(
+/**
+ * What an attestation contributed to a PASSING run. The same pure verify is
+ * re-run without it: if that also passes the root verified by ecrecover and
+ * the attestation was never needed, so no attested guarantee is claimed
+ * (`ks256AttestationUnused`); otherwise the attestation carried the run and
+ * its block is reported. Offline, cheap, no chain call either way.
+ */
+export async function attestationOutcome(
   plan: AttestationPlan,
   result: ReceiptVerifyResult,
-): Ks256AttestationReport | undefined {
-  if (plan.attestation === undefined || !result.ok) return undefined;
+  rerunWithout: () => Promise<ReceiptVerifyResult>,
+): Promise<{
+  ks256Attestation?: Ks256AttestationReport;
+  ks256AttestationUnused?: true;
+}> {
+  if (plan.attestation === undefined || !result.ok) return {};
+  if ((await rerunWithout()).ok) return { ks256AttestationUnused: true };
   const a = plan.attestation;
   return {
-    chainId: a.chainId.toString(),
-    blockNumber: a.blockNumber.toString(),
-    blockHash: `0x${bytesToHex(a.blockHash)}`,
-    address: `0x${bytesToHex(a.address)}`,
+    ks256Attestation: {
+      chainId: a.chainId.toString(),
+      blockNumber: a.blockNumber.toString(),
+      blockHash: `0x${bytesToHex(a.blockHash)}`,
+      address: `0x${bytesToHex(a.address)}`,
+    },
   };
 }
 
@@ -466,6 +479,8 @@ export type AssembleInput = {
   anchor?: AnchorReport | undefined;
   /** Set when a passing run was given an ERC-1271 attestation. */
   ks256Attestation?: Ks256AttestationReport | undefined;
+  /** An attestation was supplied but the run passed without it. */
+  ks256AttestationUnused?: boolean | undefined;
 };
 
 /** Build the result from the mechanical verdict plus the root context. */
@@ -487,6 +502,7 @@ export function assembleResult(input: AssembleInput): VerifyResult {
     anchored: input.anchor?.anchored,
     reason: input.result.reason,
     attested: input.ks256Attestation !== undefined,
+    attestationUnused: input.ks256AttestationUnused === true,
   };
 
   const out: VerifyResult = {
