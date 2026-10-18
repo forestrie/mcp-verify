@@ -18,12 +18,12 @@ Everything below is reproducible from the bundled fixtures with
 `test/core/root-table.test.ts`. Background on what transparency is and what a
 receipt contains: [TRANSPARENCY.md](../TRANSPARENCY.md).
 
-| Root                | What you supply                                                              | What the verdict rests on                                                                                |
-| ------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `genesis`           | the forest's genesis document, captured when you registered                  | the bootstrap key in genesis, with the receipt's delegation certificate resolved under it                |
-| `known-log-key`     | a log owner key you hold out of band                                         | your channel for that key: "this key owns this log" is asserted by where you got it, not proven          |
-| `known-accumulator` | a snapshot of the log's peaks at a size, from a chain read                   | the univocity contract, which refuses to publish a checkpoint whose signature or consistency proof fails |
-| `checkpoint-chain`  | a retained chain of `.sth` checkpoints, plus `genesis` or a key for its base | your own retention: each link's signature is checked over the accumulator folded from the previous link  |
+| Root                | What you supply                                                                                 | What the verdict rests on                                                                                |
+| ------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `genesis`           | the forest's genesis document, captured when you registered                                     | the bootstrap key in genesis, with the receipt's delegation certificate resolved under it                |
+| `known-log-key`     | a log owner key (`keyXy`, 64-byte P-256) or KS256 address (`ks256Address`) you hold out of band | your channel for that key: "this key owns this log" is asserted by where you got it, not proven          |
+| `known-accumulator` | a snapshot of the log's peaks at a size, from a chain read                                      | the univocity contract, which refuses to publish a checkpoint whose signature or consistency proof fails |
+| `checkpoint-chain`  | a retained chain of `.sth` checkpoints, plus `genesis` or a key for its base                    | your own retention: each link's signature is checked over the accumulator folded from the previous link  |
 
 ### When each root is the effective choice
 
@@ -86,6 +86,52 @@ If you did not keep a copy, obtain one from somewhere other than the
 operator's store, or cross-check its bootstrap key against a source you
 trust independently. Or use an accumulator root, which does not depend on
 the genesis document at all.
+
+### KS256 roots and ERC-1271 attestations
+
+A forest's root can be a secp256k1 (KS256) address instead of a P-256 key.
+Receipts are still ES256, signed by a sealer's delegated key; what changes is
+how the label-1000 delegation certificate is checked against the root.
+
+- **EOA root.** Verified by ecrecover, offline, with the same guarantee as an
+  ES256 root. Works from the `genesis` root (the bootstrap key in genesis may
+  be a KS256 address) and from `known-log-key` with `ks256Address`
+  (`0x` plus 40 hex). `known-log-key` takes exactly one of `keyXy` or
+  `ks256Address`.
+- **Contract root (Safe).** ecrecover cannot match a contract, so without
+  more the result is `ks256_root_not_recovered`. Supply `ks256Attestation`:
+  the ERC-1271 record that the contract answered `isValidSignature` with the
+  magic value for this exact certificate digest at a given block. It is a
+  chain read someone else made, written down so it can be re-run at that
+  block; this package never calls the chain. Fetch it with
+  `@forestrie/mcp-resolve`'s `fetch_ks256_attestation` tool or
+  `forestrie-cli`'s `fetch-ks256-attestation`.
+  The verdict is then **valid under the contract's signers at the attested
+  block** and not a statement about the contract's current owners. The result
+  carries a `ks256Attestation` block (chain id, block number and hash,
+  address) so a caller sees the narrower guarantee. For an EOA root the
+  attestation is not consulted; the block is still echoed if you supplied one.
+- **Chain binding.** An attestation is accepted only when its chain id equals
+  the forest's genesis chain: the same Safe address on another chain can have
+  other owners. With `genesis` the chain comes from that document. With
+  `known-log-key` supply `forestGenesis` (same encoding as the genesis
+  root's `genesis`), which is read **only** for that chain id and supplies no
+  trust keys; without it the result is `ks256_attestation_chain_unbound`.
+- **Asserted, not proven.** A bare `ks256Address` is the standard known-key
+  posture: you assert it owns the log. Nothing here shows that it does.
+- **Where it applies.** `ks256Attestation` works under `genesis` and
+  `known-log-key` only. Under `known-accumulator` and `checkpoint-chain`
+  there is no root-versus-certificate step for it to serve, so the
+  combination is rejected as an input error rather than ignored.
+  `checkpoint-chain` does accept a KS256 `genesis` root (EOA, by ecrecover);
+  its `keyXy` stays ES256.
+
+Failure reasons, each named in the result's `diagnostics`:
+`ks256_root_not_recovered`, `delegation_not_ks256`,
+`ks256_root_requires_delegation`, `ks256_attestation_address_mismatch`,
+`ks256_attestation_digest_mismatch`, `ks256_attestation_signature_mismatch`,
+`ks256_attestation_chain_mismatch`, `ks256_attestation_magic_invalid`,
+`ks256_attestation_chain_unbound`.
 
 A call takes one root. `checkpoint-chain` also accepts both `genesis` and
 `keyXy`, and tries both for each link. To have both a local signature check

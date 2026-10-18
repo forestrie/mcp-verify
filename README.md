@@ -51,12 +51,22 @@ nothing"_, and an agent can see it without running anything.
 You do not ask for "verification". You say which root you trust, and the
 result says what that root can see:
 
-| Root                | What you supply                                             |
-| ------------------- | ----------------------------------------------------------- |
-| `genesis`           | the forest's genesis document, captured when you registered |
-| `known-log-key`     | a log owner key you hold out of band                        |
-| `known-accumulator` | a snapshot of the log's peaks, from a chain read            |
-| `checkpoint-chain`  | a retained chain of `.sth` checkpoints                      |
+| Root                | What you supply                                                                         |
+| ------------------- | --------------------------------------------------------------------------------------- |
+| `genesis`           | the forest's genesis document, captured when you registered                             |
+| `known-log-key`     | a log owner key (`keyXy`, P-256) or KS256 address (`ks256Address`) you hold out of band |
+| `known-accumulator` | a snapshot of the log's peaks, from a chain read                                        |
+| `checkpoint-chain`  | a retained chain of `.sth` checkpoints                                                  |
+
+KS256 (secp256k1) roots verify offline too. An EOA root verifies by
+ecrecover, from a `genesis` or a `known-log-key` with `ks256Address`. A
+**contract** root (a Safe) cannot be checked without a chain read, which this
+package never makes: pass `ks256Attestation`, an ERC-1271 record fetched
+elsewhere (`@forestrie/mcp-resolve`'s `fetch_ks256_attestation` tool, or
+`forestrie-cli`'s `fetch-ks256-attestation`). The result is then valid
+_under the contract's signers at the attested block_, and says which block.
+A 20-byte `ks256Address` asserts, and does not prove, which log it owns.
+Details: [docs/trust-roots.md](docs/trust-roots.md#ks256-roots-and-erc-1271-attestations).
 
 The roots are not ordered by strength. The first two check the operator's signature
 locally and cannot see a split view. The last two match the peak against an
