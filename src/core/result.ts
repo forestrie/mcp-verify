@@ -76,7 +76,9 @@ export type DiagnosticCode =
    *  narrower than an ES256 root's. */
   | "ks256_attested_guarantee"
   /** An attestation was supplied but the run passed without it (EOA root). */
-  | "ks256_attestation_not_consulted";
+  | "ks256_attestation_not_consulted"
+  /** checkpoint-chain: a link was signed outside its delegation certificate's limits. */
+  | "delegation_limit_violation";
 
 export type Diagnostic = { code: DiagnosticCode; message: string };
 

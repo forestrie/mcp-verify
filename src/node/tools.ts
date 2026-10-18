@@ -124,7 +124,13 @@ export const TrustRootSchema = z
         })
         .describe(
           "Fold a retained checkpoint chain and match any authenticated link. " +
-            "Answers split-view. Needs genesis or keyXy to root the first link.",
+            "Answers split-view. Needs genesis or keyXy to root the first link. " +
+            "Each link's delegation certificate limits are enforced: a link " +
+            "signed beyond the certificate's mmrEnd fails delegation_out_of_range, " +
+            "and a link covering the receipt's leaf signed under a certificate " +
+            "that had expired when the leaf was sequenced fails " +
+            "delegation_expired (never wall-clock). A KS256 contract (Safe) " +
+            "genesis root takes ks256Attestation on the tool call.",
         ),
     ],
     {
@@ -155,7 +161,12 @@ const ks256AttestationInput = bytesInput(
     "network: use mcp-resolve's `fetch_ks256_attestation` tool or " +
     "forestrie-cli's `fetch-ks256-attestation`. With it a contract-rooted " +
     "delegation verifies as valid under the contract's signers at the " +
-    "attested block. Only usable with the genesis and known-log-key roots",
+    "attested block. Usable with the genesis, known-log-key and " +
+    "checkpoint-chain roots (checkpoint-chain also needs trust.genesis for " +
+    "the forest chain id; one attestation binds one certificate, so links " +
+    "signed under a different certificate still fail). Not with known-accumulator. " +
+    "Trust: the attestation is unsigned and only as good as whoever fetched it; " +
+    "accept one only from a party you would trust to read the chain for you",
 ).optional();
 
 export const verifyReceiptInputShape = {

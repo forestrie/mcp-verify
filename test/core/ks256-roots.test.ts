@@ -194,22 +194,17 @@ describe("KS256 known-log-key (ks256Address)", () => {
 });
 
 describe("input errors", () => {
-  it("rejects an attestation under known-accumulator and checkpoint-chain", async () => {
+  it("rejects an attestation under known-accumulator", async () => {
     const fx = await payloadFixture({ contractRoot: true });
     const att = encodedAttestationFor(fx);
-    for (const trust of [
+    const r = await run(
+      fx,
       { root: "known-accumulator", accumulator: new Uint8Array(8) },
-      {
-        root: "checkpoint-chain",
-        checkpoints: [new Uint8Array(8)],
-        genesis: fx.genesis,
-      },
-    ] as TrustRoot[]) {
-      const r = await run(fx, trust, att);
-      expect(r.ok).toBe(false);
-      expect(r.stage).toBe("parse");
-      expect(r.reason).toMatch(/ks256Attestation is only usable with/);
-    }
+      att,
+    );
+    expect(r.ok).toBe(false);
+    expect(r.stage).toBe("parse");
+    expect(r.reason).toMatch(/ks256Attestation is only usable with/);
   });
 
   it("rejects malformed attestation bytes", async () => {

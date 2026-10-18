@@ -20,6 +20,7 @@ import type { TrustRoot } from "./root.js";
 import {
   assembleResult,
   attestationOutcome,
+  chainAttestationOutcome,
   importKnownLogKey,
   inputFailureResult,
   isDetachedPayload,
@@ -163,19 +164,28 @@ export async function verifyReceipt(
         });
       }
       case "checkpoint-chain": {
-        const { result, anchor } = await verifyAtCheckpointChain({
-          receiptCbor: input.receipt,
-          idtimestampBe8,
-          inner: await innerHash(input.payload),
-          checkpoints: input.trust.checkpoints,
-          rootKeys: await rootKeysFor(input.trust),
-        });
+        const rootKeys = await rootKeysFor(input.trust);
+        const { result, anchor, attestationNeeded, mechanisms } =
+          await verifyAtCheckpointChain({
+            receiptCbor: input.receipt,
+            idtimestampBe8,
+            inner: await innerHash(input.payload),
+            checkpoints: input.trust.checkpoints,
+            rootKeys,
+            attestation: plan,
+          });
         return assembleResult({
           root,
           kind: "payload",
           result,
           detachedPayload,
           anchor,
+          ...chainAttestationOutcome(
+            plan,
+            result,
+            attestationNeeded === true,
+            mechanisms ?? [],
+          ),
         });
       }
     }
