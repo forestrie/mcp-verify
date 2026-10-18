@@ -29,79 +29,96 @@
  */
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const root = process.argv[2] ?? process.cwd();
 const EXPECTED = "0.8.0"; // exact pin
 const MAX_DEPTH = 12;
 
-/** version -> [realpath-ish paths] */
-const found = new Map();
-
-function record(dir) {
-  let pkg;
-  try {
-    pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
-  } catch {
-    return;
-  }
-  if (pkg.name !== "@forestrie/encoding") return;
-  const list = found.get(pkg.version) ?? [];
-  list.push(dir);
-  found.set(pkg.version, list);
-}
-
 /**
- * Walk every `node_modules` subtree looking for `@forestrie/encoding`
- * package directories. Deliberately dumb and exhaustive rather than clever
- * about layouts: pnpm's store, npm's flat tree, npm's nested fallback and a
- * yarn `node_modules` all fall out of the same walk.
+ * Walk every `node_modules` subtree under `rootDir` looking for
+ * `@forestrie/encoding` package directories. Deliberately dumb and
+ * exhaustive rather than clever about layouts: pnpm's store, npm's flat
+ * tree, npm's nested fallback and a yarn `node_modules` all fall out of the
+ * same walk. Returns version -> [paths].
  */
-function walk(dir, depth) {
-  if (depth > MAX_DEPTH) return;
-  let entries;
-  try {
-    entries = readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return;
-  }
-  for (const e of entries) {
-    if (!e.isDirectory() && !e.isSymbolicLink()) continue;
-    if (e.name === ".bin" || e.name === ".cache") continue;
-    const p = join(dir, e.name);
-    if (e.name === "encoding" && dir.endsWith(`${"@forestrie"}`)) {
-      record(p);
-      continue;
+export function findCopies(rootDir) {
+  /** version -> [realpath-ish paths] */
+  const found = new Map();
+
+  function record(dir) {
+    let pkg;
+    try {
+      pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+    } catch {
+      return;
     }
-    walk(p, depth + 1);
+    if (pkg.name !== "@forestrie/encoding") return;
+    const list = found.get(pkg.version) ?? [];
+    list.push(dir);
+    found.set(pkg.version, list);
   }
+
+  function walk(dir, depth) {
+    if (depth > MAX_DEPTH) return;
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (!e.isDirectory() && !e.isSymbolicLink()) continue;
+      if (e.name === ".bin" || e.name === ".cache") continue;
+      const p = join(dir, e.name);
+      if (e.name === "encoding" && dir.endsWith(`${"@forestrie"}`)) {
+        record(p);
+        // A copy can carry its own nested node_modules (npm's fallback
+        // layout when versions conflict): a second copy hides there, so
+        // keep walking.
+        walk(join(p, "node_modules"), depth + 1);
+        continue;
+      }
+      walk(p, depth + 1);
+    }
+  }
+
+  walk(join(rootDir, "node_modules"), 0);
+  return found;
 }
 
-walk(join(root, "node_modules"), 0);
+function main() {
+  const root = process.argv[2] ?? process.cwd();
+  const found = findCopies(root);
 
-if (found.size === 0) {
-  console.error(
-    `encoding-copy check FAILED: no @forestrie/encoding found under ${root}`,
+  if (found.size === 0) {
+    console.error(
+      `encoding-copy check FAILED: no @forestrie/encoding found under ${root}`,
+    );
+    process.exit(1);
+  }
+  if (found.size > 1) {
+    console.error(
+      "encoding-copy check FAILED: multiple @forestrie/encoding versions:",
+    );
+    for (const [v, paths] of found)
+      for (const p of paths) console.error(`  ${v}  ${p}`);
+    console.error(
+      "Two wire-type codecs is two answers about the same bytes. Fix the pin, do not add an override.",
+    );
+    process.exit(1);
+  }
+  const [version] = [...found.keys()];
+  if (version !== EXPECTED) {
+    console.error(
+      `encoding-copy check FAILED: expected exactly ${EXPECTED}, found ${version}`,
+    );
+    process.exit(1);
+  }
+  console.log(
+    `encoding-copy check passed: exactly one @forestrie/encoding (${version}).`,
   );
-  process.exit(1);
 }
-if (found.size > 1) {
-  console.error(
-    "encoding-copy check FAILED: multiple @forestrie/encoding versions:",
-  );
-  for (const [v, paths] of found)
-    for (const p of paths) console.error(`  ${v}  ${p}`);
-  console.error(
-    "Two wire-type codecs is two answers about the same bytes. Fix the pin, do not add an override.",
-  );
-  process.exit(1);
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main();
 }
-const [version] = [...found.keys()];
-if (version !== EXPECTED) {
-  console.error(
-    `encoding-copy check FAILED: expected exactly ${EXPECTED}, found ${version}`,
-  );
-  process.exit(1);
-}
-console.log(
-  `encoding-copy check passed: exactly one @forestrie/encoding (${version}).`,
-);
