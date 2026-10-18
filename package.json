@@ -83,13 +83,16 @@
     "check:stdio-clean": "node scripts/check-stdio-clean.mjs"
   },
   "dependencies": {
-    "@forestrie/encoding": "0.8.0",
-    "@forestrie/merklelog": "0.4.0",
-    "@forestrie/receipt-verify": "2.1.0",
+    "@forestrie/encoding": "0.9.1",
+    "@forestrie/merklelog": "0.5.0",
+    "@forestrie/receipt-verify": "3.1.0",
     "@modelcontextprotocol/sdk": "1.30.0",
     "zod": "^4.5.4"
   },
   "devDependencies": {
+    "@forestrie/delegation-cose": "0.4.0",
+    "@noble/curves": "1.9.7",
+    "@noble/hashes": "1.8.0",
     "@types/node": "^22.14.0",
     "esbuild": "^0.25.0",
     "prettier": "^3.6.2",
