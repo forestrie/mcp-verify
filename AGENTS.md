@@ -138,12 +138,18 @@ A stray `console.log` in `src/node/**` does not produce a warning. It produces
 a malformed JSON-RPC frame and an MCP client that mysteriously fails to
 initialise. All logging goes to **stderr**.
 
-`pnpm run check:stdio-clean` spawns the real bin and asserts stdout carries
-exactly one well-formed `initialize` response and nothing else. The in-memory
+`pnpm run check:stdio-clean` spawns the real bin, sends `initialize`,
+`notifications/initialized` and `tools/list`, reads a 500 ms quiet window
+after the last response, and asserts every stdout line is a well-formed
+JSON-RPC response to a request it sent (or a notification) and nothing else.
+The in-memory
 smoke test cannot catch this; only a real process can.
 
 Related: `main()` returns an exit code and does **not** call `process.exit`.
-A hard exit truncates whatever the transport had buffered.
+A hard exit truncates whatever the transport had buffered. On
+SIGINT/SIGTERM or stdin EOF it closes the server and returns 0, so the event
+loop drains rather than hanging on the client's open pipe
+(`test/node/stdio-clean.test.ts`).
 
 ## Never a bare "valid"
 
