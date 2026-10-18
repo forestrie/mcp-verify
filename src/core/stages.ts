@@ -19,14 +19,14 @@ export const VERIFY_STAGES: readonly ReceiptVerifyStage[] = [
 
 /** One line per stage: what a human reads at every step. */
 export const STAGE_NARRATION: Record<ReceiptVerifyStage, string> = {
-  parse: "receipt COSE decodes; genesis trust root loads (ES256)",
+  parse: "receipt COSE decodes; genesis trust root loads (ES256 or KS256)",
   signature: "checkpoint signature verifies under the genesis trust key",
   inclusion: "proof path recomputes the checkpoint peak",
   binding: "leaf commits the payload (SHA-256) at the receipt idtimestamp",
 };
 
 export const KNOWN_KEY_PARSE_REASON =
-  "receipt COSE decodes; caller-known log key loads (ES256)";
+  "receipt COSE decodes; caller-known log key loads (ES256 key or KS256 address)";
 export const KNOWN_KEY_SIGNATURE_REASON =
   "verifies under caller-known log key (not genesis-derived)";
 

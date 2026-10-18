@@ -21,6 +21,7 @@ import {
   verifyGrantReceiptOffline,
   verifyGrantReceiptOfflineWithKeys,
   type ReceiptVerifyResult,
+  type RootVerifyKey,
 } from "@forestrie/receipt-verify";
 import {
   decodeCborDeterministic,
@@ -31,10 +32,13 @@ import type { VerifyResult } from "./result.js";
 import type { TrustRoot } from "./root.js";
 import {
   assembleResult,
+  attestationReport,
   importKnownLogKey,
   inputFailureResult,
   isDetachedPayload,
+  planAttestation,
   remapKnownKeyFailure,
+  resolveKnownLogKey,
   verifyAtCheckpointChain,
   verifyAtKnownAccumulator,
   VerifyInputError,
@@ -47,6 +51,12 @@ export type VerifyGrantReceiptInput = {
   /** 32 lowercase hex. Required when the grant is raw rather than COSE. */
   entryId?: string;
   trust: TrustRoot;
+  /**
+   * Optional ERC-1271 attestation artifact (`encodeKs256Attestation` bytes)
+   * for a KS256 CONTRACT root. Usable only with the `genesis` and
+   * `known-log-key` roots. Fetched elsewhere; never fetched here.
+   */
+  ks256Attestation?: Uint8Array;
 };
 
 /**
@@ -123,17 +133,15 @@ function decodeCommittedGrant(
   return { grant, idtimestampBe8: entryIdHexToIdtimestampBe8(entryId) };
 }
 
-async function rootKeysFor(trust: TrustRoot): Promise<CryptoKey[]> {
-  const keys: CryptoKey[] = [];
+async function rootKeysFor(trust: TrustRoot): Promise<RootVerifyKey[]> {
+  const keys: RootVerifyKey[] = [];
   if (trust.root === "checkpoint-chain") {
     if (trust.keyXy !== undefined) {
       keys.push(await importKnownLogKey(trust.keyXy));
     }
     if (trust.genesis !== undefined) {
-      const root = await decodeTrustRootFromGenesis(trust.genesis);
-      // KS256 roots are a server-only concern; only P-256 roots can verify a
-      // checkpoint's COSE signature here.
-      if (root instanceof CryptoKey) keys.push(root);
+      // ES256 or KS256: passed through whole, never filtered.
+      keys.push(await decodeTrustRootFromGenesis(trust.genesis));
     }
   }
   return keys;
@@ -163,6 +171,7 @@ export async function verifyGrantReceipt(
   }
 
   try {
+    const plan = planAttestation(input.trust, input.ks256Attestation);
     switch (input.trust.root) {
       case "genesis": {
         const result = await verifyGrantReceiptOffline({
@@ -170,22 +179,32 @@ export async function verifyGrantReceipt(
           receiptCbor: input.receipt,
           grant,
           idtimestampBe8,
+          ...(plan.attestation !== undefined
+            ? { ks256Attestation: plan.attestation }
+            : {}),
         });
         return assembleResult({
           root,
           kind: "grant",
           result,
           detachedPayload,
+          ks256Attestation: attestationReport(plan, result),
         });
       }
       case "known-log-key": {
-        const knownKey = await importKnownLogKey(input.trust.keyXy);
+        const knownKey = await resolveKnownLogKey(input.trust);
         const result: ReceiptVerifyResult = remapKnownKeyFailure(
           await verifyGrantReceiptOfflineWithKeys({
             receiptCbor: input.receipt,
             grant,
             idtimestampBe8,
             trustKeys: [knownKey],
+            ...(plan.attestation !== undefined
+              ? { ks256Attestation: plan.attestation }
+              : {}),
+            ...(plan.forestGenesisCbor !== undefined
+              ? { forestGenesisCbor: plan.forestGenesisCbor }
+              : {}),
           }),
         );
         return assembleResult({
@@ -193,6 +212,7 @@ export async function verifyGrantReceipt(
           kind: "grant",
           result,
           detachedPayload,
+          ks256Attestation: attestationReport(plan, result),
         });
       }
       case "known-accumulator": {

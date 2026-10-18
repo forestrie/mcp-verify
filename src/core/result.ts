@@ -68,7 +68,13 @@ export type DiagnosticCode =
    *  forestrie-cli nor @forestrie/receipt-verify walks it down to a child log
    *  yet (docs/self-registration.md "The grant chain: recorded, not walked").
    *  Emitted at known-log-key and genesis, the two roots this affects. */
-  | "self_chain_not_walked";
+  | "self_chain_not_walked"
+  /** The run failed with a ks256_* / delegation_not_ks256 reason: the KS256
+   *  root could not be tied to the delegation certificate. */
+  | "ks256_root_failure"
+  /** A passing run that was given an ERC-1271 attestation: the guarantee is
+   *  narrower than an ES256 root's. */
+  | "ks256_attested_guarantee";
 
 export type Diagnostic = { code: DiagnosticCode; message: string };
 
@@ -99,6 +105,19 @@ export type AnchorReport = {
 };
 
 /**
+ * Provenance of a supplied ERC-1271 attestation on a passing run. Present
+ * means "an attestation was supplied and the run passed"; for an EOA root
+ * ecrecover decides and the attestation is not consulted. All values are
+ * strings (chain id and block are decimal).
+ */
+export type Ks256AttestationReport = {
+  chainId: string;
+  blockNumber: string;
+  blockHash: string;
+  address: string;
+};
+
+/**
  * The tool result. A superset of the CLI's `VerifyReport`, whose fields are
  * `ok`, `stage`, `reason` and `stages`; `questions`, `diagnostics` and
  * `verifier` are ours alone.
@@ -110,6 +129,8 @@ export type VerifyResult = {
   reason?: string;
   stages: StageRow[];
   anchor?: AnchorReport;
+  /** See {@link Ks256AttestationReport}. */
+  ks256Attestation?: Ks256AttestationReport;
   questions: TrustQuestions;
   diagnostics: Diagnostic[];
   verifier: VerifierIdentity;

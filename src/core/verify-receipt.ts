@@ -13,15 +13,19 @@ import {
   verifyReceiptOffline,
   verifyReceiptOfflineWithKeys,
   type ReceiptVerifyResult,
+  type RootVerifyKey,
 } from "@forestrie/receipt-verify";
 import type { VerifyResult } from "./result.js";
 import type { TrustRoot } from "./root.js";
 import {
   assembleResult,
+  attestationReport,
   importKnownLogKey,
   inputFailureResult,
   isDetachedPayload,
+  planAttestation,
   remapKnownKeyFailure,
+  resolveKnownLogKey,
   verifyAtCheckpointChain,
   verifyAtKnownAccumulator,
   VerifyInputError,
@@ -34,6 +38,12 @@ export type VerifyReceiptInput = {
   /** 32 lowercase hex = idtimestamp_be8 ‖ mmrIndex_be8. */
   entryId: string;
   trust: TrustRoot;
+  /**
+   * Optional ERC-1271 attestation artifact (`encodeKs256Attestation` bytes)
+   * for a KS256 CONTRACT root. Usable only with the `genesis` and
+   * `known-log-key` roots. Fetched elsewhere; never fetched here.
+   */
+  ks256Attestation?: Uint8Array;
 };
 
 /** SHA-256 over the payload — the leaf's inner ContentHash. */
@@ -44,15 +54,15 @@ async function innerHash(payload: Uint8Array): Promise<Uint8Array> {
   );
 }
 
-async function rootKeysFor(trust: TrustRoot): Promise<CryptoKey[]> {
-  const keys: CryptoKey[] = [];
+async function rootKeysFor(trust: TrustRoot): Promise<RootVerifyKey[]> {
+  const keys: RootVerifyKey[] = [];
   if (trust.root === "checkpoint-chain") {
     if (trust.keyXy !== undefined) {
       keys.push(await importKnownLogKey(trust.keyXy));
     }
     if (trust.genesis !== undefined) {
-      const root = await decodeTrustRootFromGenesis(trust.genesis);
-      if (root instanceof CryptoKey) keys.push(root);
+      // ES256 or KS256: passed through whole, never filtered.
+      keys.push(await decodeTrustRootFromGenesis(trust.genesis));
     }
   }
   return keys;
@@ -78,6 +88,7 @@ export async function verifyReceipt(
   }
 
   try {
+    const plan = planAttestation(input.trust, input.ks256Attestation);
     switch (input.trust.root) {
       case "genesis": {
         const result = await verifyReceiptOffline({
@@ -85,22 +96,32 @@ export async function verifyReceipt(
           receiptCbor: input.receipt,
           payload: input.payload,
           idtimestampBe8,
+          ...(plan.attestation !== undefined
+            ? { ks256Attestation: plan.attestation }
+            : {}),
         });
         return assembleResult({
           root,
           kind: "payload",
           result,
           detachedPayload,
+          ks256Attestation: attestationReport(plan, result),
         });
       }
       case "known-log-key": {
-        const knownKey = await importKnownLogKey(input.trust.keyXy);
+        const knownKey = await resolveKnownLogKey(input.trust);
         const result: ReceiptVerifyResult = remapKnownKeyFailure(
           await verifyReceiptOfflineWithKeys({
             receiptCbor: input.receipt,
             payload: input.payload,
             idtimestampBe8,
             trustKeys: [knownKey],
+            ...(plan.attestation !== undefined
+              ? { ks256Attestation: plan.attestation }
+              : {}),
+            ...(plan.forestGenesisCbor !== undefined
+              ? { forestGenesisCbor: plan.forestGenesisCbor }
+              : {}),
           }),
         );
         return assembleResult({
@@ -108,6 +129,7 @@ export async function verifyReceipt(
           kind: "payload",
           result,
           detachedPayload,
+          ks256Attestation: attestationReport(plan, result),
         });
       }
       case "known-accumulator": {

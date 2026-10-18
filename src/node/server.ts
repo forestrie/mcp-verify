@@ -157,7 +157,13 @@ export function createServer(): McpServer {
         "bytes: no network, no account, no key, no backend. Choose a trust " +
         "root deliberately — the answer tells you which of the four trust " +
         "questions that root can answer, and 'not_answered_by_this_root' is " +
-        "a real answer that must be shown to the user.",
+        "a real answer that must be shown to the user. KS256 (secp256k1) " +
+        "roots verify offline: an EOA root by ecrecover, a contract root " +
+        "(Safe) only with a ks256Attestation — an ERC-1271 record fetched " +
+        "elsewhere (mcp-resolve's fetch_ks256_attestation, or forestrie-cli's " +
+        "fetch-ks256-attestation), never by this server. A contract root is " +
+        "then valid under the contract's signers at the attested block, a " +
+        "narrower guarantee; the result's ks256Attestation names that block.",
     },
   );
 
@@ -179,7 +185,9 @@ export function createServer(): McpServer {
         "Verify a Forestrie receipt against the EXACT registered payload " +
         "bytes and an entry id, at a trust root you choose. Mirrors " +
         "`forestrie verify`. Offline: no network, no key, no account. " +
-        "Returns both the mechanical stages and the four trust questions.",
+        "Returns both the mechanical stages and the four trust questions. " +
+        "KS256 contract roots take an optional ks256Attestation (fetched " +
+        "elsewhere; this tool never calls the chain).",
       inputSchema: verifyReceiptInputShape,
       outputSchema: verifyOutputShape,
       annotations,
@@ -191,6 +199,14 @@ export function createServer(): McpServer {
           payload: resolveBytes(args.payload as BytesInput, "payload"),
           entryId: args.entryId,
           trust: resolveRoot(args.trust as TrustRootInput),
+          ...(args.ks256Attestation !== undefined
+            ? {
+                ks256Attestation: resolveBytes(
+                  args.ks256Attestation as BytesInput,
+                  "ks256Attestation",
+                ),
+              }
+            : {}),
         });
         return verifyResult("verify", result);
       } catch (err) {
@@ -209,7 +225,9 @@ export function createServer(): McpServer {
         "(Forestrie-Grant COSE Sign1, or raw grant payload CBOR plus an " +
         "entry id), at a trust root you choose. Mirrors " +
         "`forestrie verify-grant`. This is the tool that answers the " +
-        "append-authority question: the leaf IS the grant.",
+        "append-authority question: the leaf IS the grant. KS256 contract " +
+        "roots take an optional ks256Attestation (fetched elsewhere; this " +
+        "tool never calls the chain).",
       inputSchema: verifyGrantReceiptInputShape,
       outputSchema: verifyOutputShape,
       annotations,
@@ -224,6 +242,14 @@ export function createServer(): McpServer {
           ),
           ...(args.entryId !== undefined ? { entryId: args.entryId } : {}),
           trust: resolveRoot(args.trust as TrustRootInput),
+          ...(args.ks256Attestation !== undefined
+            ? {
+                ks256Attestation: resolveBytes(
+                  args.ks256Attestation as BytesInput,
+                  "ks256Attestation",
+                ),
+              }
+            : {}),
         });
         return verifyResult("verify-grant", result);
       } catch (err) {

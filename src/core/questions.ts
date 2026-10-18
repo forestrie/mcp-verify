@@ -59,6 +59,40 @@ export type QuestionsInput = {
   /** Set only at the accumulator/checkpoint roots: did the recomputed peak
    *  match a trusted accumulator? `undefined` means the check never ran. */
   anchored?: boolean | undefined;
+  /** The arithmetic's failure reason, when it gave one. */
+  reason?: string | undefined;
+  /** An ERC-1271 attestation was supplied (and the run passed). */
+  attested?: boolean | undefined;
+};
+
+/** Does this failure reason come from the KS256 root path? */
+export function isKs256Reason(reason: string | undefined): boolean {
+  return (
+    reason !== undefined &&
+    (reason.startsWith("ks256_") || reason === "delegation_not_ks256")
+  );
+}
+
+/** What each KS256 reason means and what to do about it. */
+export const KS256_REASON_NOTES: Record<string, string> = {
+  ks256_root_not_recovered:
+    "The delegation certificate's secp256k1 signature did not recover to the KS256 root address. Offline that is either a wrong signer or a contract root (a Safe); for a contract, supply a ks256Attestation (fetched elsewhere) bound to this certificate.",
+  delegation_not_ks256:
+    "The root is a KS256 address but the delegation certificate is not KS256-signed (wrong algorithm, WebAuthn envelope, or malformed).",
+  ks256_root_requires_delegation:
+    "The root is a KS256 address, which can only vouch for a delegation certificate, but the receipt carries none.",
+  ks256_attestation_address_mismatch:
+    "The attestation was made for a different contract address than the root.",
+  ks256_attestation_digest_mismatch:
+    "The attestation covers a different certificate digest than this receipt's delegation certificate.",
+  ks256_attestation_signature_mismatch:
+    "The attestation's signature hash does not match this receipt's delegation certificate signature.",
+  ks256_attestation_chain_mismatch:
+    "The attestation was made on a different chain than the forest's genesis chain; the same address on another chain can have other owners.",
+  ks256_attestation_magic_invalid:
+    "The attested isValidSignature call did not return the ERC-1271 magic value.",
+  ks256_attestation_chain_unbound:
+    "An attestation was supplied but no forest genesis, so its chain cannot be checked. Supply trust.forestGenesis (known-log-key) or use the genesis root.",
 };
 
 const NOT_ANSWERED: QuestionStatus = "not_answered_by_this_root";
@@ -99,6 +133,12 @@ function sealing(input: QuestionsInput): QuestionAnswer {
     return answer(
       NOT_ANSWERED,
       "the receipt did not decode, so no signature was reached",
+    );
+  }
+  if (isKs256Reason(input.reason)) {
+    return answer(
+      "failed",
+      "the KS256 root could not be tied to the receipt's delegation certificate — see the ks256_root_failure diagnostic",
     );
   }
   if (anchoredRoot) {
@@ -245,6 +285,27 @@ export function diagnosticsFor(input: QuestionsInput): Diagnostic[] {
         `${ROOT_ANCHOR_NOTE[input.root]}, and that root is not independent evidence about ` +
         "which log state the rest of the world sees. A log that showed you a private branch " +
         "would produce a receipt that verifies exactly like this one.",
+    });
+  }
+
+  if (!input.ok && isKs256Reason(input.reason)) {
+    out.push({
+      code: "ks256_root_failure",
+      message: `${input.reason}: ${
+        KS256_REASON_NOTES[input.reason ?? ""] ?? "a KS256 root check failed."
+      }`,
+    });
+  }
+
+  if (input.ok && input.attested === true) {
+    out.push({
+      code: "ks256_attested_guarantee",
+      message:
+        "An ERC-1271 attestation was supplied. If the root is a contract, " +
+        "the delegation is valid under the contract's signers AT THE ATTESTED BLOCK " +
+        "(a narrower guarantee than an EOA or ES256 root); this verifier never " +
+        "called the chain and trusts the attestation as the fetching party's chain read. " +
+        "For an EOA root ecrecover decides and the attestation is not consulted.",
     });
   }
 

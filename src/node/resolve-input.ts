@@ -91,7 +91,12 @@ export function resolveBytes(input: BytesInput, what = "input"): Uint8Array {
 /** The wire form of a trust root: the same union, with bytes as BytesInput. */
 export type TrustRootInput =
   | { root: "genesis"; genesis: BytesInput }
-  | { root: "known-log-key"; keyXy: BytesInput }
+  | {
+      root: "known-log-key";
+      keyXy?: BytesInput;
+      ks256Address?: string;
+      forestGenesis?: BytesInput;
+    }
   | {
       root: "known-accumulator";
       accumulator: BytesInput;
@@ -117,11 +122,34 @@ export function resolveRoot(input: TrustRootInput): TrustRoot {
         root: "genesis",
         genesis: resolveBytes(input.genesis, "trust.genesis"),
       };
-    case "known-log-key":
-      return {
-        root: "known-log-key",
-        keyXy: resolveBytes(input.keyXy, "trust.keyXy"),
-      };
+    case "known-log-key": {
+      if ((input.keyXy === undefined) === (input.ks256Address === undefined)) {
+        throw new InputError(
+          "known-log-key takes exactly one of trust.keyXy (64-byte P-256 x||y) or trust.ks256Address (0x + 40 hex)",
+        );
+      }
+      const out: TrustRoot = { root: "known-log-key" };
+      if (input.keyXy !== undefined) {
+        out.keyXy = resolveBytes(input.keyXy, "trust.keyXy");
+      }
+      if (input.ks256Address !== undefined) {
+        if (!/^0x[0-9a-fA-F]{40}$/.test(input.ks256Address)) {
+          throw new InputError(
+            "trust.ks256Address must be 0x followed by 40 hex digits",
+          );
+        }
+        out.ks256Address = new Uint8Array(
+          Buffer.from(input.ks256Address.slice(2), "hex"),
+        );
+      }
+      if (input.forestGenesis !== undefined) {
+        out.forestGenesis = resolveBytes(
+          input.forestGenesis,
+          "trust.forestGenesis",
+        );
+      }
+      return out;
+    }
     case "known-accumulator": {
       const out: TrustRoot = {
         root: "known-accumulator",
