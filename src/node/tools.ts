@@ -63,11 +63,40 @@ export const TrustRootSchema = z
       z
         .object({
           root: z.literal("known-log-key"),
-          keyXy: bytesInput("raw 64-byte P-256 x||y"),
+          keyXy: bytesInput(
+            "raw 64-byte P-256 x||y (ES256 owner key)",
+          ).optional(),
+          ks256Address: z
+            .string()
+            .regex(
+              /^0x[0-9a-fA-F]{40}$/,
+              "expected 0x followed by 40 hex digits",
+            )
+            .optional()
+            .describe(
+              "KS256 (secp256k1/keccak) owner address, 0x + 40 hex: an EOA " +
+                "or a contract (Safe). Give exactly one of keyXy or ks256Address.",
+            ),
+          forestGenesis: bytesInput(
+            "the forest's genesis document, same encoding as the genesis " +
+              "root's `genesis` field. Read ONLY for the chain id a " +
+              "ks256Attestation must match; it supplies no trust keys",
+          ).optional(),
         })
+        .refine(
+          (v) => (v.keyXy === undefined) !== (v.ks256Address === undefined),
+          {
+            message:
+              "known-log-key takes exactly one of keyXy (64-byte P-256 x||y) or ks256Address (0x + 40 hex)",
+          },
+        )
         .describe(
-          "Trust a log owner key you obtained out of band. Same questions as " +
-            "genesis; the key-to-log binding is asserted, not proven.",
+          "Trust a log owner key you obtained out of band: a 64-byte P-256 " +
+            "key (keyXy) or a 20-byte KS256 address (ks256Address). Same " +
+            "questions as genesis; the key-to-log binding is ASSERTED by you, " +
+            "not proven — an address in particular proves nothing about " +
+            "which log it owns. A contract (Safe) address needs " +
+            "ks256Attestation on the tool call to verify offline.",
         ),
       z
         .object({
@@ -119,6 +148,16 @@ export type ToolName = (typeof TOOL_NAMES)[number];
 
 /* ---------------------------- inputs ---------------------------- */
 
+/** Shared by verify_receipt and verify_grant_receipt. */
+const ks256AttestationInput = bytesInput(
+  "ERC-1271 attestation artifact (encodeKs256Attestation CBOR) for a KS256 " +
+    "CONTRACT root. Fetched elsewhere — this server never touches the " +
+    "network: use mcp-resolve's `fetch_ks256_attestation` tool or " +
+    "forestrie-cli's `fetch-ks256-attestation`. With it a contract-rooted " +
+    "delegation verifies as valid under the contract's signers at the " +
+    "attested block. Only usable with the genesis and known-log-key roots",
+).optional();
+
 export const verifyReceiptInputShape = {
   receipt: bytesInput("the COSE receipt"),
   payload: bytesInput(
@@ -129,6 +168,7 @@ export const verifyReceiptInputShape = {
     .regex(/^[0-9a-f]{32}$/)
     .describe("32 lowercase hex: idtimestamp_be8 || mmrIndex_be8"),
   trust: TrustRootSchema,
+  ks256Attestation: ks256AttestationInput,
 };
 
 export const verifyGrantReceiptInputShape = {
@@ -142,6 +182,7 @@ export const verifyGrantReceiptInputShape = {
     .optional()
     .describe("required when committedGrant is a raw payload"),
   trust: TrustRootSchema,
+  ks256Attestation: ks256AttestationInput,
 };
 
 export const decodeReceiptInputShape = {
@@ -219,6 +260,18 @@ const AnchorSchema = z.object({
   matchedLinkSize: z.string().optional(),
 });
 
+const Ks256AttestationReportSchema = z
+  .object({
+    chainId: z.string(),
+    blockNumber: z.string(),
+    blockHash: z.string(),
+    address: z.string(),
+  })
+  .describe(
+    "present only when a supplied ERC-1271 attestation was needed for the run to pass: " +
+      "a contract root is valid under its signers at THIS block only",
+  );
+
 /**
  * The verify result. `stages` and `questions` are BOTH here on purpose: the first
  * is the mechanical verdict, the second is what that verdict is evidence for.
@@ -239,6 +292,7 @@ export const verifyOutputShape = {
     .array(StageRowSchema)
     .describe("the mechanical stages, exactly the reference CLI's contract"),
   anchor: AnchorSchema.optional(),
+  ks256Attestation: Ks256AttestationReportSchema.optional(),
   questions: z
     .object({
       "split-view": QuestionAnswerSchema,

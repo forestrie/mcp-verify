@@ -21,6 +21,7 @@ import {
   verifyGrantReceiptOffline,
   verifyGrantReceiptOfflineWithKeys,
   type ReceiptVerifyResult,
+  type RootVerifyKey,
 } from "@forestrie/receipt-verify";
 import {
   decodeCborDeterministic,
@@ -31,10 +32,13 @@ import type { VerifyResult } from "./result.js";
 import type { TrustRoot } from "./root.js";
 import {
   assembleResult,
+  attestationOutcome,
   importKnownLogKey,
   inputFailureResult,
   isDetachedPayload,
+  planAttestation,
   remapKnownKeyFailure,
+  resolveKnownLogKey,
   verifyAtCheckpointChain,
   verifyAtKnownAccumulator,
   VerifyInputError,
@@ -47,6 +51,12 @@ export type VerifyGrantReceiptInput = {
   /** 32 lowercase hex. Required when the grant is raw rather than COSE. */
   entryId?: string;
   trust: TrustRoot;
+  /**
+   * Optional ERC-1271 attestation artifact (`encodeKs256Attestation` bytes)
+   * for a KS256 CONTRACT root. Usable only with the `genesis` and
+   * `known-log-key` roots. Fetched elsewhere; never fetched here.
+   */
+  ks256Attestation?: Uint8Array;
 };
 
 /**
@@ -123,17 +133,15 @@ function decodeCommittedGrant(
   return { grant, idtimestampBe8: entryIdHexToIdtimestampBe8(entryId) };
 }
 
-async function rootKeysFor(trust: TrustRoot): Promise<CryptoKey[]> {
-  const keys: CryptoKey[] = [];
+async function rootKeysFor(trust: TrustRoot): Promise<RootVerifyKey[]> {
+  const keys: RootVerifyKey[] = [];
   if (trust.root === "checkpoint-chain") {
     if (trust.keyXy !== undefined) {
       keys.push(await importKnownLogKey(trust.keyXy));
     }
     if (trust.genesis !== undefined) {
-      const root = await decodeTrustRootFromGenesis(trust.genesis);
-      // KS256 roots are a server-only concern; only P-256 roots can verify a
-      // checkpoint's COSE signature here.
-      if (root instanceof CryptoKey) keys.push(root);
+      // ES256 or KS256: passed through whole, never filtered.
+      keys.push(await decodeTrustRootFromGenesis(trust.genesis));
     }
   }
   return keys;
@@ -163,36 +171,63 @@ export async function verifyGrantReceipt(
   }
 
   try {
+    const plan = planAttestation(input.trust, input.ks256Attestation);
     switch (input.trust.root) {
       case "genesis": {
-        const result = await verifyGrantReceiptOffline({
-          genesisCbor: input.trust.genesis,
-          receiptCbor: input.receipt,
-          grant,
-          idtimestampBe8,
-        });
-        return assembleResult({
-          root,
-          kind: "grant",
-          result,
-          detachedPayload,
-        });
-      }
-      case "known-log-key": {
-        const knownKey = await importKnownLogKey(input.trust.keyXy);
-        const result: ReceiptVerifyResult = remapKnownKeyFailure(
-          await verifyGrantReceiptOfflineWithKeys({
+        const genesisCbor = input.trust.genesis;
+        const call = (att: boolean) =>
+          verifyGrantReceiptOffline({
+            genesisCbor,
             receiptCbor: input.receipt,
             grant,
             idtimestampBe8,
-            trustKeys: [knownKey],
-          }),
-        );
+            ...(att && plan.attestation !== undefined
+              ? { ks256Attestation: plan.attestation }
+              : {}),
+          });
+        const result = await call(true);
         return assembleResult({
           root,
           kind: "grant",
           result,
           detachedPayload,
+          ...(await attestationOutcome(
+            plan,
+            result,
+            () => call(false),
+            () => decodeTrustRootFromGenesis(genesisCbor),
+          )),
+        });
+      }
+      case "known-log-key": {
+        const knownKey = await resolveKnownLogKey(input.trust);
+        const call = async (att: boolean): Promise<ReceiptVerifyResult> =>
+          remapKnownKeyFailure(
+            await verifyGrantReceiptOfflineWithKeys({
+              receiptCbor: input.receipt,
+              grant,
+              idtimestampBe8,
+              trustKeys: [knownKey],
+              ...(att && plan.attestation !== undefined
+                ? { ks256Attestation: plan.attestation }
+                : {}),
+              ...(plan.forestGenesisCbor !== undefined
+                ? { forestGenesisCbor: plan.forestGenesisCbor }
+                : {}),
+            }),
+          );
+        const result = await call(true);
+        return assembleResult({
+          root,
+          kind: "grant",
+          result,
+          detachedPayload,
+          ...(await attestationOutcome(
+            plan,
+            result,
+            () => call(false),
+            async () => knownKey,
+          )),
         });
       }
       case "known-accumulator": {

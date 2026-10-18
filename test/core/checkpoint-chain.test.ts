@@ -135,7 +135,7 @@ describe("verifyGrantReceipt at the checkpoint-chain root", () => {
     });
     expect(r.ok).toBe(false);
     expect(r.stage).toBe("parse");
-    expect(r.reason).toMatch(/needs an ES256 trust root/);
+    expect(r.reason).toMatch(/needs a trust root/);
   });
 
   it("refuses cleanly when the chain does not verify under the given root", async () => {

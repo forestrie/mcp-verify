@@ -28,8 +28,19 @@ export type TrustRoot =
        * the caller's key provenance, not proven.
        */
       root: "known-log-key";
-      /** Raw 64-byte P-256 x‖y. */
-      keyXy: Uint8Array;
+      /** Raw 64-byte P-256 x‖y. Exactly one of `keyXy` / `ks256Address`. */
+      keyXy?: Uint8Array;
+      /**
+       * 20-byte KS256 (secp256k1/keccak) address. Asserts, does not prove,
+       * that the address owns the log. A contract (Safe) address needs an
+       * ERC-1271 attestation to verify offline.
+       */
+      ks256Address?: Uint8Array;
+      /**
+       * A forest genesis document, read ONLY for the chain id a
+       * `ks256Attestation` must match. It supplies no trust keys.
+       */
+      forestGenesis?: Uint8Array;
     }
   | {
       /**

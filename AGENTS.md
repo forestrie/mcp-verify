@@ -42,6 +42,17 @@ So: `import { x } from "./thing.js"`, always, even from a `.ts` file.
 Renovate and no Dependabot in this estate, so exact pins are a manual-bump
 discipline, not accidental staleness.
 
+Current pins: `@forestrie/receipt-verify` 3.1.0, which itself pins exactly
+`@forestrie/encoding` 0.9.1 and `@forestrie/merklelog` 0.5.0, so we declare those
+two at the same versions (`scripts/check-encoding-single-copy.mjs` expects
+0.9.1). KS256 roots and ERC-1271 attestations come from that version; this
+package passes them through and **never makes the chain call** — no network
+code may be added for them (the forbidden-fetch test setup enforces it).
+The KS256 tests build their receipts at run time from the devDependencies
+`@noble/curves` (keep ONE copy in the lockfile), `@noble/hashes` and
+`@forestrie/delegation-cose` (pinned to the version receipt-verify uses);
+no KS256 evidence is committed.
+
 **Never add `pnpm.overrides` for `@forestrie/encoding`.** An override would
 _silence_ the exact skew `scripts/check-encoding-single-copy.mjs` exists to
 detect, by rewriting a transitive dependency to a version its parent was never

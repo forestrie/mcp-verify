@@ -10,17 +10,27 @@
  */
 import {
   decodeKnownAccumulator,
+  decodeChainBindingFromGenesis,
+  decodeKs256Attestation,
   importEs256PublicKeyFromGrantDataXy64,
+  knownLogKeyFromBytes,
   parseReceipt,
   resolveDelegatedVerifyKey,
   verifyCheckpointChain,
   verifyReceiptOfflineAgainstKnownAccumulator,
   type CheckpointChainLink,
+  type Ks256Attestation,
   type ReceiptVerifyResult,
+  type RootVerifyKey,
 } from "@forestrie/receipt-verify";
 import { verifyCoseSign1WithParsedKey } from "@forestrie/encoding";
 import { bytesEqual, recomputeReceiptPeak } from "./peak.js";
-import type { AnchorReport, Diagnostic, VerifyResult } from "./result.js";
+import type {
+  AnchorReport,
+  Diagnostic,
+  Ks256AttestationReport,
+  VerifyResult,
+} from "./result.js";
 import type { RootName, TrustRoot } from "./root.js";
 import { rootAnswersSplitView } from "./root.js";
 import {
@@ -69,6 +79,129 @@ export async function importKnownLogKey(
       }`,
     );
   }
+}
+
+/**
+ * The `known-log-key` root's key: exactly one of `keyXy` (64-byte ES256) or
+ * `ks256Address` (20-byte KS256), parsed through `knownLogKeyFromBytes`.
+ * Either way the key-to-log binding is ASSERTED by the caller, not proven.
+ */
+export async function resolveKnownLogKey(trust: {
+  keyXy?: Uint8Array | undefined;
+  ks256Address?: Uint8Array | undefined;
+}): Promise<RootVerifyKey> {
+  if (trust.keyXy !== undefined && trust.ks256Address !== undefined) {
+    throw new VerifyInputError(
+      "known-log-key takes exactly one of keyXy (64-byte P-256 x‖y) or ks256Address (20 bytes), not both",
+    );
+  }
+  if (trust.ks256Address !== undefined) {
+    if (trust.ks256Address.length !== 20) {
+      throw new VerifyInputError(
+        `ks256Address must be a 20-byte address, got ${trust.ks256Address.length}`,
+      );
+    }
+    return knownLogKeyFromBytes(trust.ks256Address);
+  }
+  if (trust.keyXy === undefined) {
+    throw new VerifyInputError(
+      "known-log-key needs exactly one of keyXy (64-byte P-256 x‖y) or ks256Address (20 bytes)",
+    );
+  }
+  return importKnownLogKey(trust.keyXy);
+}
+
+/** Why a supplied attestation was not needed on a passing run. */
+export type AttestationUnused = "ecrecover" | "es256-root";
+
+/** What an attestation contributes to a run, resolved against the root. */
+export type AttestationPlan = {
+  attestation?: Ks256Attestation;
+  /** known-log-key only: the forest genesis, read for its chain id alone. */
+  forestGenesisCbor?: Uint8Array;
+};
+
+/**
+ * Decode a supplied ERC-1271 attestation and check the root can use one.
+ * Only the `genesis` and `known-log-key` roots verify a delegation
+ * certificate against a KS256 root; the accumulator and chain roots have no
+ * such step, so an attestation there would be silently ignored — reject it.
+ */
+export function planAttestation(
+  trust: TrustRoot,
+  attestationBytes: Uint8Array | undefined,
+): AttestationPlan {
+  if (trust.root === "known-log-key" && trust.forestGenesis !== undefined) {
+    // Only the chain id is used, so it must decode as a forest genesis that
+    // carries a chain binding; anything else would surface later as a
+    // verdict-shaped failure about the receipt.
+    try {
+      decodeChainBindingFromGenesis(trust.forestGenesis);
+    } catch (err) {
+      throw new VerifyInputError(
+        `forestGenesis is not a forest genesis with a chain binding: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+  if (attestationBytes === undefined) return {};
+  if (trust.root !== "genesis" && trust.root !== "known-log-key") {
+    throw new VerifyInputError(
+      `ks256Attestation is only usable with the genesis and known-log-key roots, not ${trust.root}: that root never checks a delegation certificate against a KS256 root`,
+    );
+  }
+  let attestation: Ks256Attestation;
+  try {
+    attestation = decodeKs256Attestation(attestationBytes);
+  } catch (err) {
+    throw new VerifyInputError(
+      `ks256Attestation is not a valid attestation artifact: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+  const plan: AttestationPlan = { attestation };
+  if (trust.root === "known-log-key" && trust.forestGenesis !== undefined) {
+    plan.forestGenesisCbor = trust.forestGenesis;
+  }
+  return plan;
+}
+
+/**
+ * What an attestation contributed to a PASSING run. The same pure verify is
+ * re-run without it: if that also passes the root verified by ecrecover and
+ * the attestation was never needed, so no attested guarantee is claimed
+ * (`ks256AttestationUnused`); otherwise the attestation carried the run and
+ * its block is reported. Offline, cheap, no chain call either way.
+ */
+export async function attestationOutcome(
+  plan: AttestationPlan,
+  result: ReceiptVerifyResult,
+  rerunWithout: () => Promise<ReceiptVerifyResult>,
+  rootKey: () => Promise<RootVerifyKey>,
+): Promise<{
+  ks256Attestation?: Ks256AttestationReport;
+  ks256AttestationUnused?: AttestationUnused;
+}> {
+  if (plan.attestation === undefined || !result.ok) return {};
+  if ((await rerunWithout()).ok) {
+    // Why it was not needed: an ES256 root never consults an attestation; a
+    // KS256 EOA root verified by ecrecover.
+    return {
+      ks256AttestationUnused:
+        (await rootKey()) instanceof CryptoKey ? "es256-root" : "ecrecover",
+    };
+  }
+  const a = plan.attestation;
+  return {
+    ks256Attestation: {
+      chainId: a.chainId.toString(),
+      blockNumber: a.blockNumber.toString(),
+      blockHash: `0x${bytesToHex(a.blockHash)}`,
+      address: `0x${bytesToHex(a.address)}`,
+    },
+  };
 }
 
 /**
@@ -203,18 +336,29 @@ export async function verifyAtKnownAccumulator(input: {
  * link only authenticates the accumulator its own proof derives (ADR-0046).
  */
 function makeCheckpointSignatureVerifier(
-  rootKeys: CryptoKey[],
+  rootKeys: RootVerifyKey[],
+  onBroken: (reason: string | undefined) => void,
 ): (checkpoint: Uint8Array, detachedPayload: Uint8Array) => Promise<boolean> {
+  // A KS256 root can only vouch for a delegation certificate; it has no
+  // P-256 key to verify a checkpoint signature with directly.
+  const es256Roots = rootKeys.filter(
+    (k): k is CryptoKey => k instanceof CryptoKey,
+  );
   return async (checkpointBytes, detachedPayload) => {
+    // Per link: a reason left by an earlier link must not describe this one.
+    onBroken(undefined);
     const resolution = await resolveDelegatedVerifyKey(
       checkpointBytes,
       rootKeys,
     );
-    if (resolution.kind === "broken") return false;
+    if (resolution.kind === "broken") {
+      onBroken(resolution.reason);
+      return false;
+    }
     const candidates =
       resolution.kind === "resolved"
-        ? [resolution.delegatedKey, ...rootKeys]
-        : rootKeys;
+        ? [resolution.delegatedKey, ...es256Roots]
+        : es256Roots;
     for (const key of candidates) {
       if (
         await verifyCoseSign1WithParsedKey(checkpointBytes, key, {
@@ -244,20 +388,25 @@ export async function verifyAtCheckpointChain(input: {
   idtimestampBe8: Uint8Array;
   inner: Uint8Array;
   checkpoints: readonly Uint8Array[];
-  rootKeys: CryptoKey[];
+  rootKeys: RootVerifyKey[];
 }): Promise<AnchoredOutcome> {
   if (input.rootKeys.length === 0) {
     throw new VerifyInputError(
-      "the checkpoint-chain root needs an ES256 trust root: supply `genesis` or `keyXy` alongside `checkpoints`",
+      "the checkpoint-chain root needs a trust root: supply `genesis` or `keyXy` alongside `checkpoints`",
     );
   }
+  let brokenReason: string | undefined;
   const chain = await verifyCheckpointChain({
     checkpoints: [...input.checkpoints],
-    verifySignature: makeCheckpointSignatureVerifier(input.rootKeys),
+    verifySignature: makeCheckpointSignatureVerifier(input.rootKeys, (r) => {
+      brokenReason = r;
+    }),
   });
   if (!chain.ok) {
     throw new VerifyInputError(
-      `checkpoint chain did not verify (${chain.reason} at link ${chain.at}): ${chain.detail}`,
+      `checkpoint chain did not verify (${chain.reason} at link ${chain.at}): ${chain.detail}${
+        brokenReason !== undefined ? ` [delegation: ${brokenReason}]` : ""
+      }`,
     );
   }
   const links: CheckpointChainLink[] = chain.links;
@@ -356,6 +505,10 @@ export type AssembleInput = {
   result: ReceiptVerifyResult;
   detachedPayload: boolean | undefined;
   anchor?: AnchorReport | undefined;
+  /** Set when a passing run was given an ERC-1271 attestation. */
+  ks256Attestation?: Ks256AttestationReport | undefined;
+  /** An attestation was supplied but the run passed without it. */
+  ks256AttestationUnused?: AttestationUnused | undefined;
 };
 
 /** Build the result from the mechanical verdict plus the root context. */
@@ -375,6 +528,16 @@ export function assembleResult(input: AssembleInput): VerifyResult {
     stage: input.result.stage,
     detachedPayload: input.detachedPayload === true,
     anchored: input.anchor?.anchored,
+    reason: input.result.reason,
+    attested: input.ks256Attestation !== undefined,
+    attestationUnused: input.ks256AttestationUnused,
+    attestedAt:
+      input.ks256Attestation !== undefined
+        ? {
+            chainId: input.ks256Attestation.chainId,
+            blockNumber: input.ks256Attestation.blockNumber,
+          }
+        : undefined,
   };
 
   const out: VerifyResult = {
@@ -392,6 +555,9 @@ export function assembleResult(input: AssembleInput): VerifyResult {
   };
   if (input.result.reason !== undefined) out.reason = input.result.reason;
   if (input.anchor !== undefined) out.anchor = input.anchor;
+  if (input.ks256Attestation !== undefined) {
+    out.ks256Attestation = input.ks256Attestation;
+  }
   return out;
 }
 
