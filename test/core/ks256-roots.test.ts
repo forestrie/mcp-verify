@@ -13,7 +13,10 @@ import {
   type TrustRoot,
 } from "../../src/core/index.js";
 import { goldenCommittedGrant } from "../../src/node/fixtures.js";
+import { grantCases } from "./tamper.js";
+import { GENESIS } from "./tamper.js";
 import {
+  buildKs256Checkpoint,
   buildKs256Fixture,
   encodedAttestationFor,
   KS256_CHAIN_ID,
@@ -262,5 +265,142 @@ describe("grant receipts", () => {
     });
     expect(withAtt.ok).toBe(true);
     expect(withAtt.ks256Attestation?.chainId).toBe(KS256_CHAIN_ID.toString());
+  });
+});
+
+describe("attestation with an ES256 root", () => {
+  it("is not consulted, and the note says the root is ES256, not ecrecover", async () => {
+    const clean = grantCases().find((c) => c.name === "clean")!;
+    const fx = await payloadFixture({ contractRoot: true });
+    const r = await verifyGrantReceipt({
+      receipt: clean.receipt,
+      committedGrant: clean.committedGrant,
+      entryId: clean.entryId,
+      trust: { root: "genesis", genesis: GENESIS },
+      ks256Attestation: encodedAttestationFor(fx),
+    });
+    expect(r.ok).toBe(true);
+    expect(r.ks256Attestation).toBeUndefined();
+    const note = r.diagnostics.find(
+      (d) => d.code === "ks256_attestation_not_consulted",
+    );
+    expect(note?.message).toMatch(/root is an ES256 key/);
+    expect(note?.message).not.toMatch(/ecrecover/);
+  });
+
+  it("keeps the ecrecover wording for a KS256 EOA root", async () => {
+    const fx = await payloadFixture();
+    const r = await run(
+      fx,
+      { root: "genesis", genesis: fx.genesis },
+      encodedAttestationFor(fx),
+    );
+    const note = r.diagnostics.find(
+      (d) => d.code === "ks256_attestation_not_consulted",
+    );
+    expect(note?.message).toMatch(/ecrecover/);
+  });
+});
+
+describe("notes carry the real guarantee", () => {
+  it("an attested pass narrows the sealing note to the block and chain", async () => {
+    const fx = await payloadFixture({ contractRoot: true });
+    const r = await run(fx, known(fx, true), encodedAttestationFor(fx));
+    expect(r.questions.sealing.status).toBe("ok");
+    expect(r.questions.sealing.note).toMatch(/at block 1234 on chain 84532/);
+    expect(r.questions.sealing.note).toMatch(
+      /trusting the party that fetched/,
+    );
+    expect(r.questions.sealing.note).not.toMatch(/verified locally/);
+    const d = r.diagnostics.find((x) => x.code === "ks256_attested_guarantee");
+    expect(d?.message).toMatch(/forest chain binding .* asserted by you/);
+  });
+
+  it("an unattested pass keeps the local-verification sealing note", async () => {
+    const fx = await payloadFixture();
+    const r = await run(fx, known(fx));
+    expect(r.questions.sealing.note).toMatch(/verified locally/);
+  });
+
+  it("a KS256 failure carries the KS256 sealing note", async () => {
+    const fx = await payloadFixture({ contractRoot: true });
+    const r = await run(fx, known(fx));
+    expect(r.questions.sealing.status).toBe("failed");
+    expect(r.questions.sealing.note).toMatch(
+      /KS256 root could not be tied to the receipt's delegation certificate/,
+    );
+  });
+
+  it("chain_unbound names the remedy for the root in use", async () => {
+    const fx = await payloadFixture({ contractRoot: true });
+    const kn = await run(fx, known(fx), encodedAttestationFor(fx));
+    expect(
+      kn.diagnostics.find((d) => d.code === "ks256_root_failure")?.message,
+    ).toMatch(/Supply trust\.forestGenesis/);
+  });
+
+  it("chain_unbound under the genesis root says the genesis has no chain binding", async () => {
+    const fx = await payloadFixture({ contractRoot: true });
+    // A genesis with a KS256 bootstrap key but no chain id.
+    const { decodeCborDeterministic, encodeCborDeterministic } =
+      await import("@forestrie/encoding");
+    const m = decodeCborDeterministic(fx.genesis) as Map<number, unknown>;
+    m.delete(-68013);
+    const r = await run(
+      fx,
+      { root: "genesis", genesis: encodeCborDeterministic(m) },
+      encodedAttestationFor(fx),
+    );
+    expect(r.reason).toBe("ks256_attestation_chain_unbound");
+    const msg = r.diagnostics.find(
+      (d) => d.code === "ks256_root_failure",
+    )?.message;
+    expect(msg).toMatch(/genesis document carries no chain binding/);
+    expect(msg).not.toMatch(/Supply trust\.forestGenesis/);
+  });
+
+  it("rejects a forestGenesis that has no chain binding as an input error", async () => {
+    const fx = await payloadFixture({ contractRoot: true });
+    const r = await run(
+      fx,
+      {
+        root: "known-log-key",
+        ks256Address: fx.rootAddress,
+        forestGenesis: new Uint8Array([1, 2, 3]),
+      },
+      encodedAttestationFor(fx),
+    );
+    expect(r.ok).toBe(false);
+    expect(r.stage).toBe("parse");
+    expect(r.reason).toMatch(
+      /forestGenesis is not a forest genesis with a chain binding/,
+    );
+  });
+});
+
+describe("checkpoint-chain under a KS256 genesis root", () => {
+  it("an EOA root vouches for the sealer key through a KS256 cert on the checkpoint", async () => {
+    const fx = await payloadFixture();
+    const r = await run(fx, {
+      root: "checkpoint-chain",
+      checkpoints: [await buildKs256Checkpoint(fx)],
+      genesis: fx.genesis,
+    });
+    expect(r.ok).toBe(true);
+    expect(r.anchor?.anchored).toBe(true);
+    expect(r.questions["split-view"].status).toBe("ok");
+  });
+
+  it("a contract / non-matching root fails closed with the delegation reason surfaced", async () => {
+    const fx = await payloadFixture({ contractRoot: true });
+    const r = await run(fx, {
+      root: "checkpoint-chain",
+      checkpoints: [await buildKs256Checkpoint(fx)],
+      genesis: fx.genesis,
+    });
+    expect(r.ok).toBe(false);
+    expect(r.stage).toBe("parse");
+    expect(r.reason).toMatch(/checkpoint chain did not verify/);
+    expect(r.reason).toMatch(/\[delegation: ks256_root_not_recovered\]/);
   });
 });

@@ -64,7 +64,9 @@ export type QuestionsInput = {
   /** An ERC-1271 attestation was supplied (and the run passed). */
   attested?: boolean | undefined;
   /** An attestation was supplied but not needed (the root verified by ecrecover). */
-  attestationUnused?: boolean | undefined;
+  attestationUnused?: "ecrecover" | "es256-root" | undefined;
+  /** Chain and block of an attestation the run NEEDED (decimal strings). */
+  attestedAt?: { chainId: string; blockNumber: string } | undefined;
 };
 
 /** Does this failure reason come from the KS256 root path? */
@@ -94,8 +96,16 @@ export const KS256_REASON_NOTES: Record<string, string> = {
   ks256_attestation_magic_invalid:
     "The attested isValidSignature call did not return the ERC-1271 magic value.",
   ks256_attestation_chain_unbound:
-    "An attestation was supplied but no forest genesis, so its chain cannot be checked. Supply trust.forestGenesis (known-log-key) or use the genesis root.",
+    "An attestation was supplied but its chain cannot be checked against a forest chain binding.",
 };
+
+/** Root-specific remedy for ks256_attestation_chain_unbound. */
+function chainUnboundNote(root: RootName): string {
+  if (root === "known-log-key") {
+    return "An attestation was supplied but no forest genesis, so its chain cannot be checked. Supply trust.forestGenesis (read only for its chain id).";
+  }
+  return "An attestation was supplied but the genesis document carries no chain binding (no chain id), so the attestation cannot be bound to a chain.";
+}
 
 const NOT_ANSWERED: QuestionStatus = "not_answered_by_this_root";
 
@@ -123,6 +133,12 @@ function answer(status: QuestionStatus, note: string): QuestionAnswer {
  */
 function sealing(input: QuestionsInput): QuestionAnswer {
   const anchoredRoot = rootAnswersSplitView(input.root);
+  if (input.ok && input.attestedAt !== undefined) {
+    return answer(
+      "ok",
+      `valid under the contract's signers at block ${input.attestedAt.blockNumber} on chain ${input.attestedAt.chainId}, trusting the party that fetched the ERC-1271 attestation; this verifier made no chain call (a narrower guarantee than a locally verified signature)`,
+    );
+  }
   if (input.ok) {
     return answer(
       "ok",
@@ -294,7 +310,10 @@ export function diagnosticsFor(input: QuestionsInput): Diagnostic[] {
     out.push({
       code: "ks256_root_failure",
       message: `${input.reason}: ${
-        KS256_REASON_NOTES[input.reason ?? ""] ?? "a KS256 root check failed."
+        input.reason === "ks256_attestation_chain_unbound"
+          ? chainUnboundNote(input.root)
+          : (KS256_REASON_NOTES[input.reason ?? ""] ??
+            "a KS256 root check failed.")
       }`,
     });
   }
@@ -306,16 +325,22 @@ export function diagnosticsFor(input: QuestionsInput): Diagnostic[] {
         "The delegation certificate verified only with the supplied ERC-1271 attestation: " +
         "the contract root is valid under the contract's signers AT THE ATTESTED BLOCK " +
         "(a narrower guarantee than an EOA or ES256 root). This verifier never called the " +
-        "chain and trusts the attestation as the fetching party's chain read.",
+        "chain and trusts the attestation as the fetching party's chain read." +
+        (input.root === "known-log-key"
+          ? " The forest chain binding (forestGenesis), like the key, is asserted by you, not proven."
+          : ""),
     });
   }
 
-  if (input.ok && input.attestationUnused === true) {
+  if (input.ok && input.attestationUnused !== undefined) {
     out.push({
       code: "ks256_attestation_not_consulted",
       message:
-        "An ERC-1271 attestation was supplied but not needed: the root verified by " +
-        "ecrecover (an EOA), so no attested-block caveat applies.",
+        input.attestationUnused === "es256-root"
+          ? "An ERC-1271 attestation was supplied but does not apply: the root is an ES256 key, " +
+            "so the delegation certificate verified under it directly and no attestation is consulted."
+          : "An ERC-1271 attestation was supplied but not needed: the KS256 root verified by " +
+            "ecrecover (an EOA), so no attested-block caveat applies.",
     });
   }
 

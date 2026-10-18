@@ -21,6 +21,11 @@ import {
   normalizeEs256SignatureLowS,
 } from "@forestrie/delegation-cose";
 import {
+  COSE_LABEL_TREE_SIZE_2,
+  COSE_LABEL_VDP,
+  COSE_LABEL_VDS,
+  VDP_CONSISTENCY_PROOF_KEY,
+  VDS_MMR_CONSISTENCY,
   encodeCborDeterministic,
   encodeSigStructure,
   toPaddedWire32,
@@ -84,7 +89,60 @@ export type Ks256Fixture = {
   certSignatureHash: Uint8Array;
   /** The receipt's leaf inner hash, as the caller passed it in. */
   inner: Uint8Array;
+  /** The delegated P-256 sealer key pair, and the KS256 cert delegating it. */
+  sealer: CryptoKeyPair;
+  cert: Uint8Array;
+  /** The receipt's MMR peak (node 2 of a two-leaf MMR, size 3). */
+  peak: Uint8Array;
 };
+
+/**
+ * One retained checkpoint (0 -> size 3) whose accumulator is the receipt's
+ * peak, signed by the delegated sealer key and carrying the KS256
+ * certificate at label 1000: the shape a KS256-rooted forest publishes.
+ */
+export async function buildKs256Checkpoint(
+  fx: Ks256Fixture,
+): Promise<Uint8Array> {
+  const protectedBytes = encodeCborDeterministic(
+    new Map<number, unknown>([
+      [1, -7],
+      [COSE_LABEL_VDS, VDS_MMR_CONSISTENCY],
+      [COSE_LABEL_TREE_SIZE_2, 3n],
+    ]),
+  );
+  const sigStructure = encodeSigStructure(
+    protectedBytes,
+    new Uint8Array(0),
+    fx.peak,
+  );
+  const sig = normalizeEs256SignatureLowS(
+    new Uint8Array(
+      await crypto.subtle.sign(
+        { name: "ECDSA", hash: "SHA-256" },
+        fx.sealer.privateKey,
+        new Uint8Array(sigStructure),
+      ),
+    ),
+  );
+  return encodeCborDeterministic([
+    protectedBytes,
+    new Map<number, unknown>([
+      [
+        COSE_LABEL_VDP,
+        new Map<number, unknown>([
+          [
+            VDP_CONSISTENCY_PROOF_KEY,
+            encodeCborDeterministic([0n, 3n, [], [fx.peak]]),
+          ],
+        ]),
+      ],
+      [1000, fx.cert],
+    ]),
+    null,
+    sig,
+  ]);
+}
 
 /**
  * @param inner - the leaf's inner ContentHash: SHA-256(payload) for a payload
@@ -202,6 +260,9 @@ export async function buildKs256Fixture(
     certDigest: keccak_256(tbs.sigStructureBytes),
     certSignatureHash: keccak_256(certSignature),
     inner,
+    sealer,
+    cert,
+    peak,
   };
 }
 

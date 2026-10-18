@@ -191,7 +191,12 @@ export async function verifyGrantReceipt(
           kind: "grant",
           result,
           detachedPayload,
-          ...(await attestationOutcome(plan, result, () => call(false))),
+          ...(await attestationOutcome(
+            plan,
+            result,
+            () => call(false),
+            () => decodeTrustRootFromGenesis(genesisCbor),
+          )),
         });
       }
       case "known-log-key": {
@@ -217,7 +222,12 @@ export async function verifyGrantReceipt(
           kind: "grant",
           result,
           detachedPayload,
-          ...(await attestationOutcome(plan, result, () => call(false))),
+          ...(await attestationOutcome(
+            plan,
+            result,
+            () => call(false),
+            async () => knownKey,
+          )),
         });
       }
       case "known-accumulator": {
