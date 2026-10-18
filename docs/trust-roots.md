@@ -71,14 +71,30 @@ certificate resolves and before its signature is accepted:
   lifetime. A link that does not cover the leaf says nothing about the leaf's
   time and is held only to the size bound.
 
-The `mmrStart` and `issuedAt` lower bounds are not enforced, for the reason
-`@forestrie/receipt-verify`'s receipt path does not enforce them (a cert is
-legitimately signed a few seconds after the leaf it covers). A certificate
-without all of labels 3, 4, 8 and 9 carries no checkable limits and is not
-checked, as in receipt-verify. A violation fails the chain as an input-shaped
-`parse` result whose `reason` ends `[delegation: <reason>]`, with a
-`delegation_limit_violation` diagnostic. If the receipt itself does not
-parse, only the size bound applies (the receipt cannot pass anyway).
+**Known gap: `mmrStart` is not enforced offline in this release.** The
+contract enforces `size - 1 >= mmrStart`; this verifier does not, so a link
+signed below a certificate's `mmrStart` still passes here. (receipt-verify's
+receipt path leaves it out too: a leaf below `mmrStart` can legitimately sit
+in a checkpoint above it, so the leaf alone cannot decide it.) The
+`issuedAt` lower bound is also not enforced, for a different reason: a cert
+is legitimately signed a few seconds after the leaf it covers, so
+`issuedAt > leafTime` is normal.
+
+A certificate without all of labels 3, 4, 8 and 9 carries no checkable
+limits and is not checked, as in receipt-verify.
+
+Ordering: the size bound needs only signed data, so it is judged while the
+chain folds. Expiry needs the receipt's leaf, so it is judged only AFTER the
+receipt's peak has matched the chain (the leaf hash binds the idtimestamp and
+the inclusion path binds the mmrIndex), over every link whose signed size
+covers the leaf. A wrong or forged `entryId` therefore reports
+`peak_not_in_checkpoint_chain`, never a delegation violation.
+
+A violation fails the chain as an input-shaped `parse` result whose `reason`
+ends `[delegation: <reason>]`, with a `delegation_limit_violation` diagnostic
+(KS256 reasons raise `ks256_root_failure`), and the `sealing` answer says the
+checkpoint's delegation failed. If the receipt does not parse, only the size
+bound applies (the receipt cannot pass anyway).
 
 ### The genesis document
 

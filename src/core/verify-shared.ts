@@ -116,7 +116,7 @@ export async function resolveKnownLogKey(trust: {
 }
 
 /** Why a supplied attestation was not needed on a passing run. */
-export type AttestationUnused = "ecrecover" | "es256-root";
+export type AttestationUnused = "ecrecover" | "es256-root" | "not-needed";
 
 /** What an attestation contributes to a run, resolved against the root. */
 export type AttestationPlan = {
@@ -243,7 +243,7 @@ export function chainAttestationOutcome(
   plan: AttestationPlan,
   result: ReceiptVerifyResult,
   attestationNeeded: boolean,
-  rootKeys: readonly RootVerifyKey[],
+  mechanisms: readonly ("ecrecover" | "es256-root")[],
 ): {
   ks256Attestation?: Ks256AttestationReport;
   ks256AttestationUnused?: AttestationUnused;
@@ -252,10 +252,15 @@ export function chainAttestationOutcome(
   if (attestationNeeded) {
     return { ks256Attestation: attestationReport(plan.attestation) };
   }
+  // Name a mechanism only when every link verified by the same one; with a
+  // mix (an ES256 key and a KS256 genesis root both in play) just say the
+  // attestation was not needed.
+  const first = mechanisms[0];
   return {
-    ks256AttestationUnused: rootKeys.some((k) => !(k instanceof CryptoKey))
-      ? "ecrecover"
-      : "es256-root",
+    ks256AttestationUnused:
+      first !== undefined && mechanisms.every((m) => m === first)
+        ? first
+        : "not-needed",
   };
 }
 
@@ -314,6 +319,8 @@ export type AnchoredOutcome = {
   anchor: AnchorReport;
   /** checkpoint-chain only: some link verified only with the attestation. */
   attestationNeeded?: boolean;
+  /** checkpoint-chain only: what verified each link's delegation. */
+  mechanisms?: ("ecrecover" | "es256-root")[];
 };
 
 /**
@@ -385,111 +392,126 @@ export async function verifyAtKnownAccumulator(input: {
   return { result, anchor };
 }
 
-/**
- * What a chain link's signature check needs to know about the receipt being
- * verified: where its leaf sits and when it was sequenced, so a delegation
- * certificate's limits can be judged per link.
- */
-export type LeafPosition = {
-  /** The receipt's leaf MMR index; `undefined` when the receipt did not parse. */
-  mmrIndex: bigint | undefined;
-  idtimestamp: bigint;
+/** What one chain link's delegation certificate limits, with the size it signed. */
+export type LinkLimits = {
+  constraints: DelegationConstraints;
+  signedSize: bigint;
 };
 
-/** `mmrIndex` from the receipt's own proof, as receipt-verify's receipt path reads it. */
-function leafPositionOf(
-  receiptCbor: Uint8Array,
-  idtimestampBe8: Uint8Array,
-): LeafPosition {
-  let mmrIndex: bigint | undefined;
-  try {
-    const { proof } = parseReceipt(receiptCbor);
-    mmrIndex = proof.mmrIndex ?? proof.leafIndex ?? 0n;
-  } catch {
-    // An unparseable receipt cannot pass the later match; only the size
-    // bound (which needs no leaf) is judged for it.
-    mmrIndex = undefined;
-  }
-  let idtimestamp = 0n;
-  for (const b of idtimestampBe8.slice(0, 8))
-    idtimestamp = (idtimestamp << 8n) | BigInt(b);
-  return { mmrIndex, idtimestamp };
-}
-
 /**
- * Delegation limits for ONE chain link, judged against that link's signed
- * tree size (label -65933). Unlike the receipt path, which only knows the
- * leaf, a link knows the exact size it sealed, so:
- *
- * - `signedSize - 1 > mmrEnd` is the contract's own bound
- *   (`delegationVerifier.sol`) — exact, `delegation_out_of_range`.
- * - A link whose signed size covers the leaf (`signedSize > leafMmrIndex`)
- *   was signed AFTER the leaf was sequenced, so a leaf time past `expiresAt`
- *   proves signing past the key's lifetime — `delegation_expired`. A link
- *   that does not cover the leaf says nothing about the leaf's time and is
- *   held only to the size bound.
- *
- * `mmrStart` and `issuedAt` lower bounds stay unenforced, for the reasons in
- * receipt-verify's `checkDelegationConstraints`. Never wall-clock.
+ * The size bound, judged during the fold because it needs only signed data:
+ * `signedSize - 1 > mmrEnd` is the contract's own bound
+ * (`delegationVerifier.sol`), exact, `delegation_out_of_range`.
  */
-export function checkLinkConstraints(
-  constraints: DelegationConstraints,
-  signedSize: bigint,
-  leaf: LeafPosition,
+export function checkSizeBound(
+  limits: LinkLimits,
 ): { ok: true } | { ok: false; reason: string } {
-  if (signedSize - 1n > constraints.mmrEnd) {
+  if (limits.signedSize - 1n > limits.constraints.mmrEnd) {
     return { ok: false, reason: "delegation_out_of_range" };
-  }
-  if (leaf.mmrIndex !== undefined && signedSize > leaf.mmrIndex) {
-    if (idtimestampToUnixSeconds(leaf.idtimestamp) > constraints.expiresAt) {
-      return { ok: false, reason: "delegation_expired" };
-    }
   }
   return { ok: true };
 }
 
 /**
+ * Expiry, judged only AFTER the receipt has matched the chain, so the
+ * leaf's idtimestamp and mmrIndex are bound by the leaf hash and inclusion
+ * path rather than being caller claims. A link whose signed size covers the
+ * leaf (`signedSize > leafMmrIndex`) was signed after the leaf was
+ * sequenced, so a leaf time past `expiresAt` proves signing past the key's
+ * lifetime (`delegation_expired`). A link that does not cover the leaf says
+ * nothing about its time. Never wall-clock.
+ *
+ * NOT enforced offline in this release: the `mmrStart` lower bound (the
+ * contract does enforce `size - 1 >= mmrStart`; this is a known gap) and
+ * the `issuedAt` lower bound (a cert is legitimately signed a few seconds
+ * after the leaf it covers, so `issuedAt > leafTime` is normal).
+ */
+export function checkLinkExpiry(
+  limits: LinkLimits,
+  leafMmrIndex: bigint,
+  leafIdtimestamp: bigint,
+): { ok: true } | { ok: false; reason: string } {
+  if (
+    limits.signedSize > leafMmrIndex &&
+    idtimestampToUnixSeconds(leafIdtimestamp) > limits.constraints.expiresAt
+  ) {
+    return { ok: false, reason: "delegation_expired" };
+  }
+  return { ok: true };
+}
+
+/** The leaf's idtimestamp as a bigint, from its 8 big-endian bytes. */
+function idtimestampOf(be8: Uint8Array): bigint {
+  let id = 0n;
+  for (const b of be8.slice(0, 8)) id = (id << 8n) | BigInt(b);
+  return id;
+}
+
+/** The observations the per-link verifier reports back to the chain run. */
+type LinkObserver = {
+  onBroken: (reason: string | undefined) => void;
+  onAttestationNeeded: () => void;
+  onMechanism: (m: "ecrecover" | "es256-root") => void;
+  /** Called once per link that resolves; `null` when the cert carries no limits. */
+  onLimits: (limits: LinkLimits | null) => void;
+};
+
+/**
  * Signature trust for chain links, rooted in the caller's anchor: resolve
  * each checkpoint's label-1000 delegation cert under the root keys, enforce
- * the cert's limits against the link, then verify the COSE signature over
+ * the cert's size bound for the link, then verify the COSE signature over
  * the FOLDED accumulator as detached payload. The payload is computed by the
  * fold, never read from the checkpoint — a link only authenticates the
- * accumulator its own proof derives (ADR-0046).
+ * accumulator its own proof derives (ADR-0046). Expiry needs the receipt's
+ * bound leaf and is judged afterwards; see {@link checkLinkExpiry}.
  */
 function makeCheckpointSignatureVerifier(
   rootKeys: RootVerifyKey[],
-  leaf: LeafPosition,
   evidence: Ks256DelegationEvidence,
-  onBroken: (reason: string | undefined) => void,
-  onAttestationNeeded: () => void,
+  obs: LinkObserver,
 ): (checkpoint: Uint8Array, detachedPayload: Uint8Array) => Promise<boolean> {
   // A KS256 root can only vouch for a delegation certificate; it has no
   // P-256 key to verify a checkpoint signature with directly.
   const es256Roots = rootKeys.filter(
     (k): k is CryptoKey => k instanceof CryptoKey,
   );
+  const ks256Roots = rootKeys.filter((k) => !(k instanceof CryptoKey));
   return async (checkpointBytes, detachedPayload) => {
     // Per link: a reason left by an earlier link must not describe this one.
-    onBroken(undefined);
+    obs.onBroken(undefined);
     const resolution = await resolveDelegatedVerifyKey(
       checkpointBytes,
       rootKeys,
       evidence,
     );
     if (resolution.kind === "broken") {
-      onBroken(resolution.reason);
+      obs.onBroken(resolution.reason);
       return false;
     }
-    if (resolution.kind === "resolved") {
-      if (evidence.attestation !== undefined) {
-        // Pure and offline: did this link verify only because of the
-        // attestation?
+    if (evidence.attestation !== undefined) {
+      // Pure and offline: did this link verify only because of the
+      // attestation, and if not, by which kind of root?
+      if (resolution.kind === "root-only") {
+        obs.onMechanism("es256-root");
+      } else {
         const bare = await resolveDelegatedVerifyKey(
           checkpointBytes,
           rootKeys,
         );
-        if (bare.kind === "broken") onAttestationNeeded();
+        if (bare.kind === "broken") {
+          obs.onAttestationNeeded();
+        } else {
+          const viaKs = await resolveDelegatedVerifyKey(
+            checkpointBytes,
+            ks256Roots,
+          );
+          obs.onMechanism(
+            viaKs.kind === "resolved" ? "ecrecover" : "es256-root",
+          );
+        }
       }
+    }
+    if (resolution.kind === "resolved") {
       if (resolution.constraints !== null) {
         let signedSize: bigint;
         try {
@@ -499,16 +521,18 @@ function makeCheckpointSignatureVerifier(
           // The fold read the same label moments ago; fail closed.
           return false;
         }
-        const check = checkLinkConstraints(
-          resolution.constraints,
-          signedSize,
-          leaf,
-        );
+        const limits = { constraints: resolution.constraints, signedSize };
+        obs.onLimits(limits);
+        const check = checkSizeBound(limits);
         if (!check.ok) {
-          onBroken(check.reason);
+          obs.onBroken(check.reason);
           return false;
         }
+      } else {
+        obs.onLimits(null);
       }
+    } else {
+      obs.onLimits(null);
     }
     const candidates =
       resolution.kind === "resolved"
@@ -554,6 +578,8 @@ export async function verifyAtCheckpointChain(input: {
   }
   let brokenReason: string | undefined;
   let attestationNeeded = false;
+  const mechanisms: ("ecrecover" | "es256-root")[] = [];
+  const linkLimits: (LinkLimits | null)[] = [];
   const evidence: Ks256DelegationEvidence = {};
   if (input.attestation?.attestation !== undefined) {
     evidence.attestation = input.attestation.attestation;
@@ -568,13 +594,16 @@ export async function verifyAtCheckpointChain(input: {
     checkpoints: [...input.checkpoints],
     verifySignature: makeCheckpointSignatureVerifier(
       input.rootKeys,
-      leafPositionOf(input.receiptCbor, input.idtimestampBe8),
       evidence,
-      (r) => {
-        brokenReason = r;
-      },
-      () => {
-        attestationNeeded = true;
+      {
+        onBroken: (r) => {
+          brokenReason = r;
+        },
+        onAttestationNeeded: () => {
+          attestationNeeded = true;
+        },
+        onMechanism: (m) => mechanisms.push(m),
+        onLimits: (l) => linkLimits.push(l),
       },
     ),
   });
@@ -607,6 +636,26 @@ export async function verifyAtCheckpointChain(input: {
       size: final.treeSize2,
     });
     if (attempt.ok) {
+      // The leaf hash (idtimestamp ‖ inner) and inclusion path now bind the
+      // receipt's idtimestamp and mmrIndex to a retained accumulator, so
+      // expiry can be judged on them. Every link whose signed size covers
+      // the leaf was signed after it was sequenced.
+      const leafMmrIndex = parseReceipt(input.receiptCbor).proof.mmrIndex;
+      if (leafMmrIndex === undefined) {
+        // parseReceipt always sets it; fail closed rather than skip expiry.
+        throw new VerifyInputError("receipt proof carries no mmrIndex");
+      }
+      const idtimestamp = idtimestampOf(input.idtimestampBe8);
+      for (let j = 0; j < links.length; j++) {
+        const limits = linkLimits[j];
+        if (limits === null || limits === undefined) continue;
+        const check = checkLinkExpiry(limits, leafMmrIndex, idtimestamp);
+        if (!check.ok) {
+          throw new VerifyInputError(
+            `checkpoint chain did not verify (signature at link ${j}): checkpoint ${j} was signed under a delegation certificate that had expired when the receipt's leaf was sequenced [delegation: ${check.reason}]`,
+          );
+        }
+      }
       const matchedPeak = await findMatchedPeak(
         {
           receiptCbor: input.receiptCbor,
@@ -618,6 +667,7 @@ export async function verifyAtCheckpointChain(input: {
       return {
         result: attempt,
         attestationNeeded,
+        mechanisms,
         anchor: {
           anchored: true,
           anchoredSize: link.treeSize2.toString(),
@@ -649,6 +699,7 @@ export async function verifyAtCheckpointChain(input: {
   return {
     result,
     attestationNeeded,
+    mechanisms,
     anchor: {
       anchored: false,
       anchoredSize: final.treeSize2.toString(),

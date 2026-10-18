@@ -64,10 +64,21 @@ export type QuestionsInput = {
   /** An ERC-1271 attestation was supplied (and the run passed). */
   attested?: boolean | undefined;
   /** An attestation was supplied but not needed (the root verified by ecrecover). */
-  attestationUnused?: "ecrecover" | "es256-root" | undefined;
+  attestationUnused?: "ecrecover" | "es256-root" | "not-needed" | undefined;
   /** Chain and block of an attestation the run NEEDED (decimal strings). */
   attestedAt?: { chainId: string; blockNumber: string } | undefined;
 };
+
+/**
+ * The delegation reason a checkpoint-chain failure carries, if any: the
+ * chain fails as `... [delegation: X]`, and X is what the KS256 and
+ * delegation-limit diagnostics are keyed on.
+ */
+export function chainDelegationReason(
+  reason: string | undefined,
+): string | undefined {
+  return /\[delegation: ([a-z0-9_]+)\]/.exec(reason ?? "")?.[1];
+}
 
 /** Does this failure reason come from the KS256 root path? */
 export function isKs256Reason(reason: string | undefined): boolean {
@@ -145,6 +156,17 @@ function sealing(input: QuestionsInput): QuestionAnswer {
       anchoredRoot
         ? "implied by the anchor: univocity rejects a checkpoint whose signature does not verify"
         : "checkpoint signature verified locally under the root's trust root",
+    );
+  }
+  const delegation = chainDelegationReason(input.reason);
+  if (delegation !== undefined) {
+    return answer(
+      "failed",
+      `a checkpoint's delegation failed (${delegation}), so the chain's signatures are not trusted${
+        isKs256Reason(delegation)
+          ? " — see the ks256_root_failure diagnostic"
+          : ""
+      }`,
     );
   }
   if (input.stage === "parse") {
@@ -306,27 +328,28 @@ export function diagnosticsFor(input: QuestionsInput): Diagnostic[] {
     });
   }
 
-  if (!input.ok && isKs256Reason(input.reason)) {
+  const delegationReason = chainDelegationReason(input.reason);
+  const failure = delegationReason ?? input.reason;
+  if (!input.ok && isKs256Reason(failure)) {
     out.push({
       code: "ks256_root_failure",
-      message: `${input.reason}: ${
-        input.reason === "ks256_attestation_chain_unbound"
+      message: `${failure}: ${
+        failure === "ks256_attestation_chain_unbound"
           ? chainUnboundNote(input.root)
-          : (KS256_REASON_NOTES[input.reason ?? ""] ??
-            "a KS256 root check failed.")
+          : (KS256_REASON_NOTES[failure ?? ""] ?? "a KS256 root check failed.")
       }`,
     });
   }
 
-  const limit =
-    /\[delegation: (delegation_out_of_range|delegation_expired)\]/.exec(
-      input.reason ?? "",
-    );
-  if (!input.ok && limit !== null) {
+  if (
+    !input.ok &&
+    (delegationReason === "delegation_out_of_range" ||
+      delegationReason === "delegation_expired")
+  ) {
     out.push({
       code: "delegation_limit_violation",
-      message: `${limit[1]}: ${
-        limit[1] === "delegation_out_of_range"
+      message: `${delegationReason}: ${
+        delegationReason === "delegation_out_of_range"
           ? "a checkpoint in the chain was signed at a tree size beyond the mmrEnd its delegation certificate authorises (signed size - 1 > mmrEnd)."
           : "a checkpoint that covers the receipt's leaf was signed under a delegation certificate that had already expired when the leaf was sequenced."
       } The signing key was used outside its authorisation, so the chain is not trusted.`,
@@ -354,8 +377,11 @@ export function diagnosticsFor(input: QuestionsInput): Diagnostic[] {
         input.attestationUnused === "es256-root"
           ? "An ERC-1271 attestation was supplied but does not apply: the root is an ES256 key, " +
             "so the delegation certificate verified under it directly and no attestation is consulted."
-          : "An ERC-1271 attestation was supplied but not needed: the KS256 root verified by " +
-            "ecrecover (an EOA), so no attested-block caveat applies.",
+          : input.attestationUnused === "not-needed"
+            ? "An ERC-1271 attestation was supplied but not needed: every link verified without it " +
+              "(by more than one kind of root), so no attested-block caveat applies."
+            : "An ERC-1271 attestation was supplied but not needed: the KS256 root verified by " +
+              "ecrecover (an EOA), so no attested-block caveat applies.",
     });
   }
 

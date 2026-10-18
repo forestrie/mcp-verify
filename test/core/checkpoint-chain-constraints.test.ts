@@ -177,6 +177,47 @@ describe("checkpoint-chain: delegation limits per link", () => {
     expect(r.reason).toMatch(/\[delegation: delegation_expired\]/);
   });
 
+  it("a forged entryId cannot turn an honest chain into a delegation violation", async () => {
+    const fx = await fixture();
+    const root = await newEs256Root();
+    // The cert is live for the REAL leaf time, expired for a far-future one.
+    const cert = await buildEs256Cert(root, fx, wide(fx));
+    const forged = `${"ff".repeat(8)}0000000000000001`;
+    const r = await verifyReceipt({
+      receipt: fx.receipt,
+      payload: PAYLOAD,
+      entryId: forged,
+      trust: {
+        root: "checkpoint-chain",
+        checkpoints: [await coveringLink(fx, cert)],
+        keyXy: root.keyXy,
+      },
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toBe("peak_not_in_checkpoint_chain");
+    expect(r.diagnostics.map((d) => d.code)).not.toContain(
+      "delegation_limit_violation",
+    );
+  });
+
+  it("the expiry failure names the delegation in the sealing answer", async () => {
+    const fx = await fixture();
+    const root = await newEs256Root();
+    const cert = await buildEs256Cert(root, fx, {
+      ...wide(fx),
+      expiresAt: leafUnixSeconds(fx) - 10,
+    });
+    const r = await run(fx, {
+      root: "checkpoint-chain",
+      checkpoints: [await coveringLink(fx, cert)],
+      keyXy: root.keyXy,
+    });
+    expect(r.questions.sealing.status).toBe("failed");
+    expect(r.questions.sealing.note).toMatch(
+      /delegation failed \(delegation_expired\)/,
+    );
+  });
+
   it("the size bound applies to a non-covering link too", async () => {
     const fx = await fixture();
     const root = await newEs256Root();
@@ -255,6 +296,54 @@ describe("checkpoint-chain: KS256 contract root with an ERC-1271 attestation", (
     );
     expect(r.ok).toBe(false);
     expect(r.reason).toMatch(/ks256_attestation_digest_mismatch/);
+  });
+
+  it("an attestation for another chain fails with the chain mismatch and the KS256 diagnostic", async () => {
+    const fx = await fixture({ contractRoot: true });
+    const r = await run(
+      fx,
+      await chainTrust(fx),
+      encodedAttestationFor(fx, { chainId: 1n }),
+    );
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(
+      /\[delegation: ks256_attestation_chain_mismatch\]/,
+    );
+    expect(r.diagnostics.map((d) => d.code)).toContain("ks256_root_failure");
+    expect(r.questions.sealing.status).toBe("failed");
+    expect(r.questions.sealing.note).toMatch(
+      /delegation failed \(ks256_attestation_chain_mismatch\).*ks256_root_failure/,
+    );
+  });
+
+  it("a failed contract root under checkpoint-chain raises ks256_root_failure", async () => {
+    const fx = await fixture({ contractRoot: true });
+    const r = await run(fx, await chainTrust(fx));
+    expect(r.ok).toBe(false);
+    const d = r.diagnostics.find((x) => x.code === "ks256_root_failure");
+    expect(d?.message).toMatch(/^ks256_root_not_recovered:/);
+  });
+
+  it("an unneeded attestation is not labelled ecrecover when an ES256 key verified the links", async () => {
+    const fx = await fixture();
+    const root = await newEs256Root();
+    const cert = await buildEs256Cert(root, fx, wide(fx));
+    const r = await run(
+      fx,
+      {
+        root: "checkpoint-chain",
+        checkpoints: [await coveringLink(fx, cert)],
+        keyXy: root.keyXy,
+        genesis: fx.genesis,
+      },
+      encodedAttestationFor(fx),
+    );
+    expect(r.ok).toBe(true);
+    const d = r.diagnostics.find(
+      (x) => x.code === "ks256_attestation_not_consulted",
+    );
+    expect(d?.message).toMatch(/ES256 key/);
+    expect(d?.message).not.toMatch(/ecrecover/);
   });
 
   it("an attestation the EOA root did not need is reported as not consulted", async () => {

@@ -165,7 +165,7 @@ export async function verifyReceipt(
       }
       case "checkpoint-chain": {
         const rootKeys = await rootKeysFor(input.trust);
-        const { result, anchor, attestationNeeded } =
+        const { result, anchor, attestationNeeded, mechanisms } =
           await verifyAtCheckpointChain({
             receiptCbor: input.receipt,
             idtimestampBe8,
@@ -184,7 +184,7 @@ export async function verifyReceipt(
             plan,
             result,
             attestationNeeded === true,
-            rootKeys,
+            mechanisms ?? [],
           ),
         });
       }
