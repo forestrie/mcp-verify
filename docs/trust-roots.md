@@ -113,7 +113,7 @@ how the label-1000 delegation certificate is checked against the root.
   block is reported only when the attestation was needed: the verify is
   re-run without it, and if it still passes (an EOA root, by ecrecover) no
   block is reported and a `ks256_attestation_not_consulted` diagnostic says
-  the attestation was not used.
+  the attestation was not used. With an ES256 root the same diagnostic says the attestation does not apply (the root is an ES256 key), not that ecrecover ran. When an attestation was needed, the `sealing` answer states the narrower guarantee (block, chain, and that you trust whoever fetched the attestation). `forestGenesis`, like the key, is caller-asserted, and must decode as a forest genesis with a chain binding or the call is an input error.
 - **Chain binding.** An attestation is accepted only when its chain id equals
   the forest's genesis chain: the same Safe address on another chain can have
   other owners. With `genesis` the chain comes from that document. With
