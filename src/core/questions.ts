@@ -318,6 +318,21 @@ export function diagnosticsFor(input: QuestionsInput): Diagnostic[] {
     });
   }
 
+  const limit =
+    /\[delegation: (delegation_out_of_range|delegation_expired)\]/.exec(
+      input.reason ?? "",
+    );
+  if (!input.ok && limit !== null) {
+    out.push({
+      code: "delegation_limit_violation",
+      message: `${limit[1]}: ${
+        limit[1] === "delegation_out_of_range"
+          ? "a checkpoint in the chain was signed at a tree size beyond the mmrEnd its delegation certificate authorises (signed size - 1 > mmrEnd)."
+          : "a checkpoint that covers the receipt's leaf was signed under a delegation certificate that had already expired when the leaf was sequenced."
+      } The signing key was used outside its authorisation, so the chain is not trusted.`,
+    });
+  }
+
   if (input.ok && input.attested === true) {
     out.push({
       code: "ks256_attested_guarantee",

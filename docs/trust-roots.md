@@ -54,6 +54,32 @@ receipt contains: [TRANSPARENCY.md](../TRANSPARENCY.md).
   link's sealed size, fails `size_mismatch`, and there is no legacy path
   for checkpoints sealed before the label existed.
 
+### Delegation limits under `checkpoint-chain`
+
+A delegation certificate authorises its key only for checkpoints whose
+`size - 1` lies in `[mmrStart, mmrEnd]` and until `expiresAt`. Each chain
+link is judged against its own signed tree size (label -65933), after its
+certificate resolves and before its signature is accepted:
+
+- **`delegation_out_of_range`**: `signedSize - 1 > mmrEnd`. Exact; it is the
+  bound the on-chain `delegationVerifier` applies, so the chain rejects what
+  the contract would have refused to publish.
+- **`delegation_expired`**: the link's signed size covers the receipt's leaf
+  (`signedSize > leaf mmrIndex`) and the leaf's time (from its idtimestamp,
+  never wall-clock) is later than `expiresAt`. A covering checkpoint is signed
+  after the leaf was sequenced, so this proves signing past the key's
+  lifetime. A link that does not cover the leaf says nothing about the leaf's
+  time and is held only to the size bound.
+
+The `mmrStart` and `issuedAt` lower bounds are not enforced, for the reason
+`@forestrie/receipt-verify`'s receipt path does not enforce them (a cert is
+legitimately signed a few seconds after the leaf it covers). A certificate
+without all of labels 3, 4, 8 and 9 carries no checkable limits and is not
+checked, as in receipt-verify. A violation fails the chain as an input-shaped
+`parse` result whose `reason` ends `[delegation: <reason>]`, with a
+`delegation_limit_violation` diagnostic. If the receipt itself does not
+parse, only the size bound applies (the receipt cannot pass anyway).
+
 ### The genesis document
 
 The genesis document is a Forestrie operator record. Forestrie writes one
@@ -122,12 +148,26 @@ how the label-1000 delegation certificate is checked against the root.
   trust keys; without it the result is `ks256_attestation_chain_unbound`.
 - **Asserted, not proven.** A bare `ks256Address` is the standard known-key
   posture: you assert it owns the log. Nothing here shows that it does.
-- **Where it applies.** `ks256Attestation` works under `genesis` and
-  `known-log-key` only. Under `known-accumulator` and `checkpoint-chain`
-  there is no root-versus-certificate step for it to serve, so the
-  combination is rejected as an input error rather than ignored.
-  `checkpoint-chain` does accept a KS256 `genesis` root (EOA, by ecrecover);
-  its `keyXy` stays ES256.
+- **Where it applies.** `ks256Attestation` works under `genesis`,
+  `known-log-key` and `checkpoint-chain`. Under `known-accumulator` there is
+  no root-versus-certificate step for it to serve, so the combination is
+  rejected as an input error rather than ignored. `checkpoint-chain`
+  accepts a KS256 `genesis` root (an EOA by ecrecover, a Safe with the
+  attestation); its `keyXy` stays ES256.
+- **Under `checkpoint-chain`.** The attestation is offered to every link's
+  delegation certificate, and the forest chain id is read from the
+  supplied `genesis` (an attestation with no `genesis`, or a genesis without
+  a chain binding, is an input error: a bare `keyXy` carries no chain).
+  One attestation binds ONE certificate digest and signature. A chain whose
+  links were signed under different certificates (a delegation rotated
+  mid-chain) therefore fails closed at the first link the attestation does
+  not match, with `ks256_attestation_digest_mismatch`; fetch an attestation
+  per certificate you need to cover, or use a chain that stays under one.
+  The attested block is reported when at least one link verified only
+  because of the attestation (each link is re-resolved without it, purely
+  and offline); otherwise a `ks256_attestation_not_consulted` diagnostic
+  says it was unused. The verdict's `sealing` answer carries the same
+  narrower attested-block wording as at the other roots.
 
 Failure reasons, each named in the result's `diagnostics`:
 `ks256_root_not_recovered`, `delegation_not_ks256`,
