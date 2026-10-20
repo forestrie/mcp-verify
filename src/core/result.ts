@@ -123,6 +123,24 @@ export type Ks256AttestationReport = {
 };
 
 /**
+ * Every supplied attestation, accounted for (nothing is silently ignored).
+ * `used` ones carried the run: they are the only ones whose block the verdict
+ * is valid at. `unused` ones say why: `not_needed` (the certificate verified
+ * without it), `no_matching_certificate` (no verified certificate has its
+ * digest and signature hash), `rejected` (it matched the certificate of the
+ * link that failed) or `run_failed`. `links` (checkpoint-chain) are the
+ * indexes of the links it carried.
+ */
+export type Ks256AttestationsReport = {
+  used: (Ks256AttestationReport & {
+    index: number;
+    digest: string;
+    links?: number[];
+  })[];
+  unused: { index: number; digest: string; reason: string }[];
+};
+
+/**
  * The tool result. A superset of the CLI's `VerifyReport`, whose fields are
  * `ok`, `stage`, `reason` and `stages`; `questions`, `diagnostics` and
  * `verifier` are ours alone.
@@ -134,8 +152,14 @@ export type VerifyResult = {
   reason?: string;
   stages: StageRow[];
   anchor?: AnchorReport;
-  /** See {@link Ks256AttestationReport}. */
+  /** Human detail of a checkpoint-chain failure (which link, and why). */
+  detail?: string;
+  /** checkpoint-chain: the index of the link a failure names. */
+  failedLink?: number;
+  /** The first attestation that carried the run; see {@link Ks256AttestationReport}. */
   ks256Attestation?: Ks256AttestationReport;
+  /** All supplied attestations, used and unused; see {@link Ks256AttestationsReport}. */
+  ks256Attestations?: Ks256AttestationsReport;
   questions: TrustQuestions;
   diagnostics: Diagnostic[];
   verifier: VerifierIdentity;

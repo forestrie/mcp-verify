@@ -42,7 +42,7 @@ So: `import { x } from "./thing.js"`, always, even from a `.ts` file.
 Renovate and no Dependabot in this estate, so exact pins are a manual-bump
 discipline, not accidental staleness.
 
-Current pins: `@forestrie/receipt-verify` 3.1.0, which itself pins exactly
+Current pins: `@forestrie/receipt-verify` 3.2.0, which itself pins exactly
 `@forestrie/encoding` 0.9.1 and `@forestrie/merklelog` 0.5.0, so we declare those
 two at the same versions (`scripts/check-encoding-single-copy.mjs` expects
 0.9.1). KS256 roots and ERC-1271 attestations come from that version; this

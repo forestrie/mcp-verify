@@ -163,7 +163,10 @@ export function createServer(): McpServer {
         "elsewhere (mcp-resolve's fetch_ks256_attestation, or forestrie-cli's " +
         "fetch-ks256-attestation), never by this server. A contract root is " +
         "then valid under the contract's signers at the attested block, a " +
-        "narrower guarantee; the result's ks256Attestation names that block.",
+        "narrower guarantee; the result's ks256Attestation names that block. A " +
+        "Safe that rotated its delegate needs one attestation per " +
+        "certificate (ks256Attestations); every attestation is reported as " +
+        "used or unused, never silently ignored.",
     },
   );
 
@@ -187,7 +190,8 @@ export function createServer(): McpServer {
         "`forestrie verify`. Offline: no network, no key, no account. " +
         "Returns both the mechanical stages and the four trust questions. " +
         "KS256 contract roots take an optional ks256Attestation (fetched " +
-        "elsewhere; this tool never calls the chain).",
+        "elsewhere; this tool never calls the chain; several go in " +
+        "ks256Attestations).",
       inputSchema: verifyReceiptInputShape,
       outputSchema: verifyOutputShape,
       annotations,
@@ -205,6 +209,13 @@ export function createServer(): McpServer {
                   args.ks256Attestation as BytesInput,
                   "ks256Attestation",
                 ),
+              }
+            : {}),
+          ...(args.ks256Attestations !== undefined
+            ? {
+                ks256Attestations: (
+                  args.ks256Attestations as BytesInput[]
+                ).map((a, i) => resolveBytes(a, `ks256Attestations[${i}]`)),
               }
             : {}),
         });
@@ -227,7 +238,7 @@ export function createServer(): McpServer {
         "`forestrie verify-grant`. This is the tool that answers the " +
         "append-authority question: the leaf IS the grant. KS256 contract " +
         "roots take an optional ks256Attestation (fetched elsewhere; this " +
-        "tool never calls the chain).",
+        "tool never calls the chain; several go in ks256Attestations).",
       inputSchema: verifyGrantReceiptInputShape,
       outputSchema: verifyOutputShape,
       annotations,
@@ -248,6 +259,13 @@ export function createServer(): McpServer {
                   args.ks256Attestation as BytesInput,
                   "ks256Attestation",
                 ),
+              }
+            : {}),
+          ...(args.ks256Attestations !== undefined
+            ? {
+                ks256Attestations: (
+                  args.ks256Attestations as BytesInput[]
+                ).map((a, i) => resolveBytes(a, `ks256Attestations[${i}]`)),
               }
             : {}),
         });

@@ -126,11 +126,14 @@ export const TrustRootSchema = z
           "Fold a retained checkpoint chain and match any authenticated link. " +
             "Answers split-view. Needs genesis or keyXy to root the first link. " +
             "Each link's delegation certificate limits are enforced: a link " +
-            "signed beyond the certificate's mmrEnd fails delegation_out_of_range, " +
+            "signed beyond the certificate's mmrEnd, or below its mmrStart, " +
+            "fails delegation_out_of_range, " +
             "and a link covering the receipt's leaf signed under a certificate " +
             "that had expired when the leaf was sequenced fails " +
             "delegation_expired (never wall-clock). A KS256 contract (Safe) " +
-            "genesis root takes ks256Attestation on the tool call.",
+            "genesis root takes ks256Attestation on the tool call (one per " +
+            "delegation certificate: several in ks256Attestations). Failures " +
+            "carry the typed reason, with stage/detail/failedLink naming the link.",
         ),
     ],
     {
@@ -163,11 +166,35 @@ const ks256AttestationInput = bytesInput(
     "delegation verifies as valid under the contract's signers at the " +
     "attested block. Usable with the genesis, known-log-key and " +
     "checkpoint-chain roots (checkpoint-chain also needs trust.genesis for " +
-    "the forest chain id; one attestation binds one certificate, so links " +
-    "signed under a different certificate still fail). Not with known-accumulator. " +
+    "the forest chain id; one attestation binds one certificate, so a chain " +
+    "whose links were signed under several certificates needs one " +
+    "attestation per certificate: give them in ks256Attestations). Not " +
+    "with known-accumulator. " +
     "Trust: the attestation is unsigned and only as good as whoever fetched it; " +
     "accept one only from a party you would trust to read the chain for you",
 ).optional();
+
+/**
+ * Several attestations, for a Safe that rotated its delegate: one
+ * certificate per delegate, one attestation per certificate. Added ALONGSIDE
+ * the singular field (which keeps working) rather than widening it, so
+ * existing callers and schemas are untouched. When both are given they are
+ * combined, the singular first.
+ */
+const ks256AttestationsInput = z
+  .array(BytesInputSchema)
+  .min(1)
+  .describe(
+    "Several ERC-1271 attestations (each encodeKs256Attestation CBOR, " +
+      `${BYTES_SHAPES}) for a KS256 CONTRACT root that signed more than one ` +
+      "delegation certificate (a Safe that rotated its delegate). Each " +
+      "certificate takes the attestation whose digest and signature hash are " +
+      "its own. Combined with ks256Attestation when both are given. Every " +
+      "attestation is reported in the result as used or unused with a reason " +
+      "(ks256Attestations): none is silently ignored. Same roots and trust " +
+      "caveats as ks256Attestation.",
+  )
+  .optional();
 
 export const verifyReceiptInputShape = {
   receipt: bytesInput("the COSE receipt"),
@@ -180,6 +207,7 @@ export const verifyReceiptInputShape = {
     .describe("32 lowercase hex: idtimestamp_be8 || mmrIndex_be8"),
   trust: TrustRootSchema,
   ks256Attestation: ks256AttestationInput,
+  ks256Attestations: ks256AttestationsInput,
 };
 
 export const verifyGrantReceiptInputShape = {
@@ -194,6 +222,7 @@ export const verifyGrantReceiptInputShape = {
     .describe("required when committedGrant is a raw payload"),
   trust: TrustRootSchema,
   ks256Attestation: ks256AttestationInput,
+  ks256Attestations: ks256AttestationsInput,
 };
 
 export const decodeReceiptInputShape = {
@@ -279,8 +308,33 @@ const Ks256AttestationReportSchema = z
     address: z.string(),
   })
   .describe(
-    "present only when a supplied ERC-1271 attestation was needed for the run to pass: " +
-      "a contract root is valid under its signers at THIS block only",
+    "present only when a supplied ERC-1271 attestation was needed for the run to pass " +
+      "(the first one, when several were): a contract root is valid under its " +
+      "signers at THIS block only",
+  );
+
+const Ks256AttestationsReportSchema = z
+  .object({
+    used: z.array(
+      z.object({
+        index: z.number(),
+        digest: z.string(),
+        links: z.array(z.number()).optional(),
+        chainId: z.string(),
+        blockNumber: z.string(),
+        blockHash: z.string(),
+        address: z.string(),
+      }),
+    ),
+    unused: z.array(
+      z.object({ index: z.number(), digest: z.string(), reason: z.string() }),
+    ),
+  })
+  .describe(
+    "every supplied attestation, accounted for: used ones carried the run " +
+      "(valid under the contract's signers at each named block only); unused " +
+      "ones say why (not_needed, no_matching_certificate, rejected, run_failed). " +
+      "Index is the position in the supplied list (ks256Attestation first, then ks256Attestations)",
   );
 
 /**
@@ -303,7 +357,16 @@ export const verifyOutputShape = {
     .array(StageRowSchema)
     .describe("the mechanical stages, exactly the reference CLI's contract"),
   anchor: AnchorSchema.optional(),
+  detail: z
+    .string()
+    .optional()
+    .describe("checkpoint-chain: which link failed and why, in words"),
+  failedLink: z
+    .number()
+    .optional()
+    .describe("checkpoint-chain: index of the link a failure names"),
   ks256Attestation: Ks256AttestationReportSchema.optional(),
+  ks256Attestations: Ks256AttestationsReportSchema.optional(),
   questions: z
     .object({
       "split-view": QuestionAnswerSchema,

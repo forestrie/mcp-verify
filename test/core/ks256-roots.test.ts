@@ -394,8 +394,9 @@ describe("checkpoint-chain under a KS256 genesis root", () => {
       genesis: fx.genesis,
     });
     expect(r.ok).toBe(false);
-    expect(r.stage).toBe("parse");
-    expect(r.reason).toMatch(/checkpoint chain did not verify/);
-    expect(r.reason).toMatch(/\[delegation: ks256_root_not_recovered\]/);
+    expect(r.stage).toBe("signature");
+    expect(r.reason).toBe("ks256_root_not_recovered");
+    expect(r.failedLink).toBe(0);
+    expect(r.detail).toMatch(/checkpoint chain did not verify at link 0/);
   });
 });
