@@ -290,3 +290,48 @@ export function encodedAttestationFor(
 ): Uint8Array {
   return encodeKs256Attestation(attestationFor(fx, overrides));
 }
+
+/**
+ * A further delegation certificate for the fixture's sealer key, in the shape
+ * of a Safe that rotated its delegate: same contract-root address, a different
+ * `delegationId` (so a different digest and signature), signed by a key that
+ * does NOT ecrecover to the address — offline it verifies only with an
+ * ERC-1271 attestation made for it.
+ */
+export function buildContractCert(
+  fx: Ks256Fixture,
+  sealerRaw: Uint8Array,
+  delegationByte: number,
+): {
+  cert: Uint8Array;
+  certDigest: Uint8Array;
+  certSignatureHash: Uint8Array;
+} {
+  const signer = newKs256Root();
+  const leafTime = idtimestampToUnixSeconds(fx.idtimestampBe8);
+  const tbs = buildDelegationToBeSignedKs256(
+    {
+      logIdHex32: LOG_ID_HEX32,
+      mmrStart: 0,
+      mmrEnd: 65535,
+      delegatedPublicKeyCbor: encodeCborDeterministic(
+        new Map<number, unknown>([
+          [1, 2],
+          [-1, 1],
+          [-2, sealerRaw.slice(1, 33)],
+          [-3, sealerRaw.slice(33, 65)],
+        ]),
+      ),
+      issuedAt: leafTime - 3600,
+      expiresAt: leafTime + 3600,
+      delegationId: new Uint8Array(16).fill(delegationByte),
+    },
+    fx.rootAddress,
+  );
+  const sig = ks256Sign(signer.sk, tbs.sigStructureBytes);
+  return {
+    cert: assembleDelegationCertificate(tbs, sig),
+    certDigest: keccak_256(tbs.sigStructureBytes),
+    certSignatureHash: keccak_256(sig),
+  };
+}

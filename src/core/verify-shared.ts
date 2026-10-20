@@ -9,30 +9,27 @@
  * without CI going red.
  */
 import {
-  checkpointConsistencyProof,
   decodeKnownAccumulator,
   decodeChainBindingFromGenesis,
   decodeKs256Attestation,
-  idtimestampToUnixSeconds,
   importEs256PublicKeyFromGrantDataXy64,
   knownLogKeyFromBytes,
+  extractKs256DelegationDigest,
   parseReceipt,
-  resolveDelegatedVerifyKey,
-  verifyCheckpointChain,
+  selectKs256Attestation,
+  verifyReceiptAgainstCheckpointChain,
   verifyReceiptOfflineAgainstKnownAccumulator,
-  type CheckpointChainLink,
-  type DelegationConstraints,
+  type CheckpointLinkRecord,
   type Ks256Attestation,
-  type Ks256DelegationEvidence,
   type ReceiptVerifyResult,
   type RootVerifyKey,
 } from "@forestrie/receipt-verify";
-import { verifyCoseSign1WithParsedKey } from "@forestrie/encoding";
 import { bytesEqual, recomputeReceiptPeak } from "./peak.js";
 import type {
   AnchorReport,
   Diagnostic,
   Ks256AttestationReport,
+  Ks256AttestationsReport,
   VerifyResult,
 } from "./result.js";
 import type { RootName, TrustRoot } from "./root.js";
@@ -118,9 +115,9 @@ export async function resolveKnownLogKey(trust: {
 /** Why a supplied attestation was not needed on a passing run. */
 export type AttestationUnused = "ecrecover" | "es256-root" | "not-needed";
 
-/** What an attestation contributes to a run, resolved against the root. */
+/** What the supplied attestations contribute to a run, resolved against the root. */
 export type AttestationPlan = {
-  attestation?: Ks256Attestation;
+  attestations: Ks256Attestation[];
   /**
    * The forest genesis, read for its chain id alone: `forestGenesis` under
    * known-log-key, the supplied `genesis` under checkpoint-chain.
@@ -129,7 +126,21 @@ export type AttestationPlan = {
 };
 
 /**
- * Decode a supplied ERC-1271 attestation and check the root can use one.
+ * The attestation bytes a caller supplied, from the singular and the plural
+ * input fields: the singular first, then the list, in the order given.
+ */
+export function attestationInputs(input: {
+  ks256Attestation?: Uint8Array | undefined;
+  ks256Attestations?: readonly Uint8Array[] | undefined;
+}): Uint8Array[] {
+  return [
+    ...(input.ks256Attestation !== undefined ? [input.ks256Attestation] : []),
+    ...(input.ks256Attestations ?? []),
+  ];
+}
+
+/**
+ * Decode the supplied ERC-1271 attestations and check the root can use them.
  * The `genesis`, `known-log-key` and `checkpoint-chain` roots verify a
  * delegation certificate against a KS256 root; `known-accumulator` has no
  * such step, so an attestation there would be silently ignored — reject it.
@@ -137,7 +148,7 @@ export type AttestationPlan = {
  */
 export function planAttestation(
   trust: TrustRoot,
-  attestationBytes: Uint8Array | undefined,
+  attestationBytes: readonly Uint8Array[],
 ): AttestationPlan {
   if (trust.root === "known-log-key" && trust.forestGenesis !== undefined) {
     // Only the chain id is used, so it must decode as a forest genesis that
@@ -153,7 +164,7 @@ export function planAttestation(
       );
     }
   }
-  if (attestationBytes === undefined) return {};
+  if (attestationBytes.length === 0) return { attestations: [] };
   if (trust.root === "known-accumulator") {
     throw new VerifyInputError(
       "ks256Attestation is only usable with the genesis, known-log-key and checkpoint-chain roots, not known-accumulator: that root never checks a delegation certificate against a KS256 root",
@@ -175,17 +186,18 @@ export function planAttestation(
       );
     }
   }
-  let attestation: Ks256Attestation;
-  try {
-    attestation = decodeKs256Attestation(attestationBytes);
-  } catch (err) {
-    throw new VerifyInputError(
-      `ks256Attestation is not a valid attestation artifact: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    );
-  }
-  const plan: AttestationPlan = { attestation };
+  const attestations = attestationBytes.map((bytes, i) => {
+    try {
+      return decodeKs256Attestation(bytes);
+    } catch (err) {
+      throw new VerifyInputError(
+        `ks256Attestation is not a valid attestation artifact${
+          attestationBytes.length > 1 ? ` (entry ${i})` : ""
+        }: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  });
+  const plan: AttestationPlan = { attestations };
   if (trust.root === "known-log-key" && trust.forestGenesis !== undefined) {
     plan.forestGenesisCbor = trust.forestGenesis;
   }
@@ -195,32 +207,116 @@ export function planAttestation(
   return plan;
 }
 
+/** What the attestations contributed to a run, as the result reports it. */
+export type AttestationOutcome = {
+  ks256Attestations?: Ks256AttestationsReport;
+  /** Why unneeded attestations were not needed, when that is the reason. */
+  attestationUnusedLabel?: AttestationUnused;
+};
+
 /**
- * What an attestation contributed to a PASSING run. The same pure verify is
- * re-run without it: if that also passes the root verified by ecrecover and
- * the attestation was never needed, so no attested guarantee is claimed
- * (`ks256AttestationUnused`); otherwise the attestation carried the run and
- * its block is reported. Offline, cheap, no chain call either way.
+ * What the attestations contributed to a run through the receipt-level
+ * verifiers (`genesis`, `known-log-key`). The same pure verify is re-run:
+ * without any attestation, and if that also passes the root verified by
+ * ecrecover (or an ES256 root) and none was needed, so no attested guarantee
+ * is claimed; otherwise each attestation is tried alone, and the first that
+ * carries the run is the one used. Offline, cheap, no chain call either way.
+ * A failing run reports none as used: ones made for this receipt's
+ * certificate are `rejected`, the rest unused (`no_matching_certificate`); none
+ * carried it.
  */
 export async function attestationOutcome(
   plan: AttestationPlan,
   result: ReceiptVerifyResult,
-  rerunWithout: () => Promise<ReceiptVerifyResult>,
+  rerun: (attestations: Ks256Attestation[]) => Promise<ReceiptVerifyResult>,
   rootKey: () => Promise<RootVerifyKey>,
-): Promise<{
-  ks256Attestation?: Ks256AttestationReport;
-  ks256AttestationUnused?: AttestationUnused;
-}> {
-  if (plan.attestation === undefined || !result.ok) return {};
-  if ((await rerunWithout()).ok) {
-    // Why it was not needed: an ES256 root never consults an attestation; a
-    // KS256 EOA root verified by ecrecover.
+  receipt: Uint8Array,
+): Promise<AttestationOutcome> {
+  const atts = plan.attestations;
+  if (atts.length === 0) return {};
+  // Does this attestation speak for THIS receipt's certificate (digest and
+  // signature hash)? If so and it did not carry the run, it was rejected
+  // (wrong address, chain or magic), not merely unmatched.
+  let cert: ReturnType<typeof extractKs256DelegationDigest> = null;
+  try {
+    cert = extractKs256DelegationDigest(receipt);
+  } catch {
+    cert = null;
+  }
+  const matches = (a: Ks256Attestation) =>
+    cert !== null && selectKs256Attestation(cert, [a]) !== undefined;
+  const classify = (
+    list: { a: Ks256Attestation; index: number }[],
+  ): Pick<Ks256AttestationsReport, "rejected" | "unused"> => ({
+    rejected: list
+      .filter(({ a }) => matches(a))
+      .map(({ a, index }) => ({
+        index,
+        digest: `0x${bytesToHex(a.digest)}`,
+        links: [],
+      })),
+    unused: list
+      .filter(({ a }) => !matches(a))
+      .map(({ a, index }) => unusedEntry(a, index, "no_matching_certificate")),
+  });
+  const indexed = atts.map((a, index) => ({ a, index }));
+  if (!result.ok) {
+    return { ks256Attestations: { used: [], ...classify(indexed) } };
+  }
+  if ((await rerun([])).ok) {
+    // Why they were not needed: an ES256 root never consults an attestation;
+    // a KS256 EOA root verified by ecrecover.
     return {
-      ks256AttestationUnused:
+      ks256Attestations: {
+        used: [],
+        rejected: [],
+        unused: atts.map((a, index) => unusedEntry(a, index, "not_needed")),
+      },
+      attestationUnusedLabel:
         (await rootKey()) instanceof CryptoKey ? "es256-root" : "ecrecover",
     };
   }
-  return { ks256Attestation: attestationReport(plan.attestation) };
+  const passesAlone: boolean[] = [];
+  for (const a of atts) passesAlone.push((await rerun([a])).ok);
+  // The first that carries the run is the one used; if none does alone
+  // (cannot happen for a single certificate), credit the first.
+  const usedIndex = Math.max(0, passesAlone.indexOf(true));
+  const rest = classify(
+    indexed.filter(({ index }) => index !== usedIndex && !passesAlone[index]),
+  );
+  return {
+    ks256Attestations: {
+      used: [usedEntry(atts[usedIndex]!, usedIndex)],
+      rejected: rest.rejected,
+      unused: [
+        ...rest.unused,
+        ...indexed
+          .filter(({ index }) => index !== usedIndex && passesAlone[index])
+          .map(({ a, index }) => unusedEntry(a, index, "duplicate")),
+      ].sort((x, y) => x.index - y.index),
+    },
+  };
+}
+
+function usedEntry(
+  a: Ks256Attestation,
+  index: number,
+  links?: number[],
+): Ks256AttestationsReport["used"][number] {
+  return {
+    index,
+    digest: `0x${bytesToHex(a.digest)}`,
+    ...(links !== undefined ? { links } : {}),
+    ...attestationReport(a),
+  };
+}
+
+function unusedEntry(
+  a: Ks256Attestation,
+  index: number,
+  reason: string,
+): Ks256AttestationsReport["unused"][number] {
+  return { index, digest: `0x${bytesToHex(a.digest)}`, reason };
 }
 
 /** The result block naming the chain and block an attestation speaks for. */
@@ -236,32 +332,20 @@ export function attestationReport(
 }
 
 /**
- * What an attestation contributed under `checkpoint-chain`, from the chain's
- * own per-link record (`attestationNeeded`) instead of a whole-verify re-run.
+ * Name a mechanism for unneeded attestations only when every link verified
+ * the same way; with a mix (an ES256 key and a KS256 genesis root both in
+ * play) just say they were not needed.
  */
-export function chainAttestationOutcome(
-  plan: AttestationPlan,
-  result: ReceiptVerifyResult,
-  attestationNeeded: boolean,
-  mechanisms: readonly ("ecrecover" | "es256-root")[],
-): {
-  ks256Attestation?: Ks256AttestationReport;
-  ks256AttestationUnused?: AttestationUnused;
-} {
-  if (plan.attestation === undefined || !result.ok) return {};
-  if (attestationNeeded) {
-    return { ks256Attestation: attestationReport(plan.attestation) };
-  }
-  // Name a mechanism only when every link verified by the same one; with a
-  // mix (an ES256 key and a KS256 genesis root both in play) just say the
-  // attestation was not needed.
-  const first = mechanisms[0];
-  return {
-    ks256AttestationUnused:
-      first !== undefined && mechanisms.every((m) => m === first)
-        ? first
-        : "not-needed",
-  };
+function unusedLabelFromRecords(
+  records: readonly CheckpointLinkRecord[],
+): AttestationUnused {
+  const kinds = new Set(
+    records.map((r) =>
+      r.verifiedBy === "ks256-root" ? "ecrecover" : "es256-root",
+    ),
+  );
+  if (kinds.size === 1) return [...kinds][0] as AttestationUnused;
+  return "not-needed";
 }
 
 /**
@@ -316,11 +400,16 @@ async function findMatchedPeak(
 
 export type AnchoredOutcome = {
   result: ReceiptVerifyResult;
-  anchor: AnchorReport;
-  /** checkpoint-chain only: some link verified only with the attestation. */
-  attestationNeeded?: boolean;
-  /** checkpoint-chain only: what verified each link's delegation. */
-  mechanisms?: ("ecrecover" | "es256-root")[];
+  anchor?: AnchorReport;
+  /** checkpoint-chain only: the typed stage of a failure. */
+  chainStage?: string;
+  /** checkpoint-chain only: the human detail of a chain-level failure. */
+  detail?: string;
+  /** checkpoint-chain only: the link a chain-level failure names. */
+  failedLink?: number;
+  /** checkpoint-chain only: used and unused attestations. */
+  ks256Attestations?: Ks256AttestationsReport;
+  attestationUnusedLabel?: AttestationUnused;
 };
 
 /**
@@ -392,175 +481,18 @@ export async function verifyAtKnownAccumulator(input: {
   return { result, anchor };
 }
 
-/** What one chain link's delegation certificate limits, with the size it signed. */
-export type LinkLimits = {
-  constraints: DelegationConstraints;
-  signedSize: bigint;
-};
-
 /**
- * The size bound, judged during the fold because it needs only signed data:
- * `signedSize - 1 > mmrEnd` is the contract's own bound
- * (`delegationVerifier.sol`), exact, `delegation_out_of_range`.
- */
-export function checkSizeBound(
-  limits: LinkLimits,
-): { ok: true } | { ok: false; reason: string } {
-  if (limits.signedSize - 1n > limits.constraints.mmrEnd) {
-    return { ok: false, reason: "delegation_out_of_range" };
-  }
-  return { ok: true };
-}
-
-/**
- * Expiry, judged only AFTER the receipt has matched the chain, so the
- * leaf's idtimestamp and mmrIndex are bound by the leaf hash and inclusion
- * path rather than being caller claims. A link whose signed size covers the
- * leaf (`signedSize > leafMmrIndex`) was signed after the leaf was
- * sequenced, so a leaf time past `expiresAt` proves signing past the key's
- * lifetime (`delegation_expired`). A link that does not cover the leaf says
- * nothing about its time. Never wall-clock.
+ * The checkpoint-chain root: `@forestrie/receipt-verify`'s shared verifier
+ * (`verifyReceiptAgainstCheckpointChain`, lifted from this package's 0.6.1
+ * copy) folds the retained `.sth` chain under the caller's roots with each
+ * delegation certificate's limits enforced per link, matches the receipt's
+ * leaf-derived peak against ANY authenticated link, and judges expiry on the
+ * links that cover the now-bound leaf. This function only maps its typed
+ * outcome onto this package's result: `stage`/`reason` are the typed ones,
+ * not a thrown string with a `[delegation: X]` suffix.
  *
- * NOT enforced offline in this release: the `mmrStart` lower bound (the
- * contract does enforce `size - 1 >= mmrStart`; this is a known gap) and
- * the `issuedAt` lower bound (a cert is legitimately signed a few seconds
- * after the leaf it covers, so `issuedAt > leafTime` is normal).
- */
-export function checkLinkExpiry(
-  limits: LinkLimits,
-  leafMmrIndex: bigint,
-  leafIdtimestamp: bigint,
-): { ok: true } | { ok: false; reason: string } {
-  if (
-    limits.signedSize > leafMmrIndex &&
-    idtimestampToUnixSeconds(leafIdtimestamp) > limits.constraints.expiresAt
-  ) {
-    return { ok: false, reason: "delegation_expired" };
-  }
-  return { ok: true };
-}
-
-/** The leaf's idtimestamp as a bigint, from its 8 big-endian bytes. */
-function idtimestampOf(be8: Uint8Array): bigint {
-  let id = 0n;
-  for (const b of be8.slice(0, 8)) id = (id << 8n) | BigInt(b);
-  return id;
-}
-
-/** The observations the per-link verifier reports back to the chain run. */
-type LinkObserver = {
-  onBroken: (reason: string | undefined) => void;
-  onAttestationNeeded: () => void;
-  onMechanism: (m: "ecrecover" | "es256-root") => void;
-  /** Called once per link that resolves; `null` when the cert carries no limits. */
-  onLimits: (limits: LinkLimits | null) => void;
-};
-
-/**
- * Signature trust for chain links, rooted in the caller's anchor: resolve
- * each checkpoint's label-1000 delegation cert under the root keys, enforce
- * the cert's size bound for the link, then verify the COSE signature over
- * the FOLDED accumulator as detached payload. The payload is computed by the
- * fold, never read from the checkpoint — a link only authenticates the
- * accumulator its own proof derives (ADR-0046). Expiry needs the receipt's
- * bound leaf and is judged afterwards; see {@link checkLinkExpiry}.
- */
-function makeCheckpointSignatureVerifier(
-  rootKeys: RootVerifyKey[],
-  evidence: Ks256DelegationEvidence,
-  obs: LinkObserver,
-): (checkpoint: Uint8Array, detachedPayload: Uint8Array) => Promise<boolean> {
-  // A KS256 root can only vouch for a delegation certificate; it has no
-  // P-256 key to verify a checkpoint signature with directly.
-  const es256Roots = rootKeys.filter(
-    (k): k is CryptoKey => k instanceof CryptoKey,
-  );
-  const ks256Roots = rootKeys.filter((k) => !(k instanceof CryptoKey));
-  return async (checkpointBytes, detachedPayload) => {
-    // Per link: a reason left by an earlier link must not describe this one.
-    obs.onBroken(undefined);
-    const resolution = await resolveDelegatedVerifyKey(
-      checkpointBytes,
-      rootKeys,
-      evidence,
-    );
-    if (resolution.kind === "broken") {
-      obs.onBroken(resolution.reason);
-      return false;
-    }
-    if (evidence.attestation !== undefined) {
-      // Pure and offline: did this link verify only because of the
-      // attestation, and if not, by which kind of root?
-      if (resolution.kind === "root-only") {
-        obs.onMechanism("es256-root");
-      } else {
-        const bare = await resolveDelegatedVerifyKey(
-          checkpointBytes,
-          rootKeys,
-        );
-        if (bare.kind === "broken") {
-          obs.onAttestationNeeded();
-        } else {
-          const viaKs = await resolveDelegatedVerifyKey(
-            checkpointBytes,
-            ks256Roots,
-          );
-          obs.onMechanism(
-            viaKs.kind === "resolved" ? "ecrecover" : "es256-root",
-          );
-        }
-      }
-    }
-    if (resolution.kind === "resolved") {
-      if (resolution.constraints !== null) {
-        let signedSize: bigint;
-        try {
-          signedSize =
-            checkpointConsistencyProof(checkpointBytes).signedTreeSize2;
-        } catch {
-          // The fold read the same label moments ago; fail closed.
-          return false;
-        }
-        const limits = { constraints: resolution.constraints, signedSize };
-        obs.onLimits(limits);
-        const check = checkSizeBound(limits);
-        if (!check.ok) {
-          obs.onBroken(check.reason);
-          return false;
-        }
-      } else {
-        obs.onLimits(null);
-      }
-    } else {
-      obs.onLimits(null);
-    }
-    const candidates =
-      resolution.kind === "resolved"
-        ? [resolution.delegatedKey, ...es256Roots]
-        : es256Roots;
-    for (const key of candidates) {
-      if (
-        await verifyCoseSign1WithParsedKey(checkpointBytes, key, {
-          logPrefix: "checkpoint-chain",
-          detachedPayload,
-        })
-      ) {
-        return true;
-      }
-    }
-    return false;
-  };
-}
-
-/**
- * The checkpoint-chain root: fold the retained `.sth` chain, then match the
- * receipt against ANY authenticated link — later links' signed consistency
- * proofs commit an earlier accumulator forward, so burial never turns an
- * honest receipt tamper-shaped.
- *
- * Newest-first, mirroring the `forestrie` CLI: the freshest cover gives the
- * most useful report. Retention limits coverage, never validity, so a receipt
- * newer than the whole chain fails CLOSED with a refresh remedy.
+ * Retention limits coverage, never validity, so a receipt newer than the
+ * whole chain fails CLOSED with a refresh remedy.
  */
 export async function verifyAtCheckpointChain(input: {
   receiptCbor: Uint8Array;
@@ -568,7 +500,7 @@ export async function verifyAtCheckpointChain(input: {
   inner: Uint8Array;
   checkpoints: readonly Uint8Array[];
   rootKeys: RootVerifyKey[];
-  /** ERC-1271 attestation for a KS256 contract root, with its genesis. */
+  /** ERC-1271 attestations for a KS256 contract root, with its genesis. */
   attestation?: AttestationPlan;
 }): Promise<AnchoredOutcome> {
   if (input.rootKeys.length === 0) {
@@ -576,139 +508,91 @@ export async function verifyAtCheckpointChain(input: {
       "the checkpoint-chain root needs a trust root: supply `genesis` or `keyXy` alongside `checkpoints`",
     );
   }
-  let brokenReason: string | undefined;
-  let attestationNeeded = false;
-  const mechanisms: ("ecrecover" | "es256-root")[] = [];
-  const linkLimits: (LinkLimits | null)[] = [];
-  const evidence: Ks256DelegationEvidence = {};
-  if (input.attestation?.attestation !== undefined) {
-    evidence.attestation = input.attestation.attestation;
-    if (input.attestation.forestGenesisCbor !== undefined) {
-      evidence.forestChainId = BigInt(
-        decodeChainBindingFromGenesis(input.attestation.forestGenesisCbor)
-          .chainId,
-      );
-    }
-  }
-  const chain = await verifyCheckpointChain({
-    checkpoints: [...input.checkpoints],
-    verifySignature: makeCheckpointSignatureVerifier(
-      input.rootKeys,
-      evidence,
-      {
-        onBroken: (r) => {
-          brokenReason = r;
-        },
-        onAttestationNeeded: () => {
-          attestationNeeded = true;
-        },
-        onMechanism: (m) => mechanisms.push(m),
-        onLimits: (l) => linkLimits.push(l),
-      },
-    ),
+  const atts = input.attestation?.attestations ?? [];
+  const genesis = input.attestation?.forestGenesisCbor;
+  const out = await verifyReceiptAgainstCheckpointChain({
+    receiptCbor: input.receiptCbor,
+    idtimestampBe8: input.idtimestampBe8,
+    inner: input.inner,
+    checkpoints: input.checkpoints,
+    rootKeys: input.rootKeys,
+    ...(atts.length > 0 ? { attestations: atts } : {}),
+    ...(genesis !== undefined ? { forestGenesisCbor: genesis } : {}),
   });
-  if (!chain.ok) {
-    throw new VerifyInputError(
-      `checkpoint chain did not verify (${chain.reason} at link ${chain.at}): ${chain.detail}${
-        brokenReason !== undefined ? ` [delegation: ${brokenReason}]` : ""
-      }`,
-    );
-  }
-  const links: CheckpointChainLink[] = chain.links;
-  const final = links[links.length - 1];
-  if (final === undefined) {
-    throw new VerifyInputError("checkpoint chain folded to zero links");
-  }
 
-  let last: ReceiptVerifyResult = {
-    ok: false,
-    stage: "signature",
-    reason: "peak_not_in_checkpoint_chain",
-  };
-  for (let i = links.length - 1; i >= 0; i--) {
-    const link = links[i];
-    if (link === undefined) continue;
-    const attempt = await verifyReceiptOfflineAgainstKnownAccumulator({
-      receiptCbor: input.receiptCbor,
-      idtimestampBe8: input.idtimestampBe8,
-      inner: input.inner,
-      accumulator: link.accumulator,
-      size: final.treeSize2,
-    });
-    if (attempt.ok) {
-      // The leaf hash (idtimestamp ‖ inner) and inclusion path now bind the
-      // receipt's idtimestamp and mmrIndex to a retained accumulator, so
-      // expiry can be judged on them. Every link whose signed size covers
-      // the leaf was signed after it was sequenced.
-      const leafMmrIndex = parseReceipt(input.receiptCbor).proof.mmrIndex;
-      if (leafMmrIndex === undefined) {
-        // parseReceipt always sets it; fail closed rather than skip expiry.
-        throw new VerifyInputError("receipt proof carries no mmrIndex");
-      }
-      const idtimestamp = idtimestampOf(input.idtimestampBe8);
-      for (let j = 0; j < links.length; j++) {
-        const limits = linkLimits[j];
-        if (limits === null || limits === undefined) continue;
-        const check = checkLinkExpiry(limits, leafMmrIndex, idtimestamp);
-        if (!check.ok) {
-          throw new VerifyInputError(
-            `checkpoint chain did not verify (signature at link ${j}): checkpoint ${j} was signed under a delegation certificate that had expired when the receipt's leaf was sequenced [delegation: ${check.reason}]`,
-          );
-        }
-      }
-      const matchedPeak = await findMatchedPeak(
-        {
-          receiptCbor: input.receiptCbor,
-          idtimestampBe8: input.idtimestampBe8,
-          inner: input.inner,
-        },
-        link.accumulator,
+  const attestationReport: Pick<
+    AnchoredOutcome,
+    "ks256Attestations" | "attestationUnusedLabel"
+  > = {};
+  if (atts.length > 0) {
+    attestationReport.ks256Attestations = {
+      used: out.attestations.used.map((u) =>
+        usedEntry(atts[u.index]!, u.index, u.links),
+      ),
+      rejected: out.attestations.rejected.map((u) => ({
+        index: u.index,
+        digest: `0x${bytesToHex(atts[u.index]!.digest)}`,
+        links: u.links,
+      })),
+      unused: out.attestations.unused.map((u) =>
+        unusedEntry(atts[u.index]!, u.index, u.reason),
+      ),
+    };
+    if (out.ok && out.attestations.used.length === 0) {
+      attestationReport.attestationUnusedLabel = unusedLabelFromRecords(
+        out.records,
       );
-      return {
-        result: attempt,
-        attestationNeeded,
-        mechanisms,
-        anchor: {
-          anchored: true,
-          anchoredSize: link.treeSize2.toString(),
-          peakCount: link.accumulator.length,
-          matchedPeak,
-          linkCount: links.length,
-          matchedLinkSize: link.treeSize2.toString(),
-        },
-      };
     }
-    last = attempt;
-    // A parse failure or a newer-than-chain receipt is the same at every
-    // link; no point re-asking the older ones.
-    if (attempt.stage === "parse") break;
-    if (attempt.reason === "receipt_newer_than_known_accumulator") break;
   }
 
-  // Rename the reason to name the anchor the caller actually supplied: they
-  // handed us a checkpoint chain, not a snapshot, and "refresh the
-  // accumulator" would be the wrong remedy.
-  const reason =
-    last.stage === "parse"
-      ? last.reason
-      : last.reason === "receipt_newer_than_known_accumulator"
-        ? "receipt_newer_than_checkpoint_chain"
-        : "peak_not_in_checkpoint_chain";
-  const result: ReceiptVerifyResult = { ok: false, stage: last.stage };
-  if (reason !== undefined) result.reason = reason;
-  return {
-    result,
-    attestationNeeded,
-    mechanisms,
-    anchor: {
+  const final = out.links[out.links.length - 1];
+  if (out.ok) {
+    const link = out.links[out.matchedLink]!;
+    return {
+      result: { ok: true, stage: "binding" },
+      anchor: {
+        anchored: true,
+        anchoredSize: link.treeSize2.toString(),
+        peakCount: link.accumulator.length,
+        matchedPeak: out.matchedPeak,
+        linkCount: out.links.length,
+        matchedLinkSize: link.treeSize2.toString(),
+      },
+      ...attestationReport,
+    };
+  }
+
+  // Map the typed stage onto the CLI's stage vocabulary. A bad input or an
+  // unreadable receipt is `parse`; everything else the chain refused is
+  // `signature` (the label upstream uses for an accumulator that did not
+  // match, too — the typed `reason` carries the real verdict).
+  const stage: ReceiptVerifyResult["stage"] =
+    out.stage === "input" || out.stage === "parse" ? "parse" : "signature";
+  const outcome: AnchoredOutcome = {
+    result: { ok: false, stage, reason: out.reason },
+    ...attestationReport,
+  };
+  if (out.stage === "chain") {
+    outcome.detail = `checkpoint chain did not verify${
+      out.at !== undefined ? ` at link ${out.at}` : ""
+    }${out.detail !== undefined ? `: ${out.detail}` : ""}`;
+  } else if (out.stage === "delegation") {
+    outcome.detail = `checkpoint ${out.at ?? "?"} was signed under a delegation certificate that had expired when the receipt's leaf was sequenced`;
+  }
+  outcome.chainStage = out.stage;
+  if (out.at !== undefined) outcome.failedLink = out.at;
+  if (out.stage === "anchor" && final !== undefined) {
+    // The chain folded and its signatures held: this is an anchor verdict.
+    outcome.anchor = {
       anchored: false,
       anchoredSize: final.treeSize2.toString(),
       peakCount: final.accumulator.length,
       matchedPeak: null,
-      linkCount: links.length,
-      ...(reason !== undefined ? { reason } : {}),
-    },
-  };
+      linkCount: out.links.length,
+      reason: out.reason,
+    };
+  }
+  return outcome;
 }
 
 /**
@@ -734,15 +618,21 @@ export type AssembleInput = {
   result: ReceiptVerifyResult;
   detachedPayload: boolean | undefined;
   anchor?: AnchorReport | undefined;
-  /** Set when a passing run was given an ERC-1271 attestation. */
-  ks256Attestation?: Ks256AttestationReport | undefined;
-  /** An attestation was supplied but the run passed without it. */
-  ks256AttestationUnused?: AttestationUnused | undefined;
+  /** Set when the run was given ERC-1271 attestations: used and unused. */
+  ks256Attestations?: Ks256AttestationsReport | undefined;
+  /** Why unneeded attestations were not needed, when a label applies. */
+  attestationUnusedLabel?: AttestationUnused | undefined;
+  /** checkpoint-chain: the typed stage of a failure (`chain`, `delegation`, ...). */
+  chainStage?: string | undefined;
+  /** A chain-level failure's human detail, and the link it names. */
+  detail?: string | undefined;
+  failedLink?: number | undefined;
 };
 
 /** Build the result from the mechanical verdict plus the root context. */
 export function assembleResult(input: AssembleInput): VerifyResult {
   const anchoredRoot = rootAnswersSplitView(input.root);
+  const used = input.ks256Attestations?.used ?? [];
   const rows =
     input.root === "known-log-key"
       ? knownKeyStageRows(input.result)
@@ -758,15 +648,14 @@ export function assembleResult(input: AssembleInput): VerifyResult {
     detachedPayload: input.detachedPayload === true,
     anchored: input.anchor?.anchored,
     reason: input.result.reason,
-    attested: input.ks256Attestation !== undefined,
-    attestationUnused: input.ks256AttestationUnused,
-    attestedAt:
-      input.ks256Attestation !== undefined
-        ? {
-            chainId: input.ks256Attestation.chainId,
-            blockNumber: input.ks256Attestation.blockNumber,
-          }
-        : undefined,
+    attested: used.length > 0,
+    attestationUnused: input.attestationUnusedLabel,
+    attestedAt: used.map((u) => ({
+      chainId: u.chainId,
+      blockNumber: u.blockNumber,
+    })),
+    unusedAttestations: input.ks256Attestations?.unused ?? [],
+    chainStage: input.chainStage,
   };
 
   const out: VerifyResult = {
@@ -784,8 +673,20 @@ export function assembleResult(input: AssembleInput): VerifyResult {
   };
   if (input.result.reason !== undefined) out.reason = input.result.reason;
   if (input.anchor !== undefined) out.anchor = input.anchor;
-  if (input.ks256Attestation !== undefined) {
-    out.ks256Attestation = input.ks256Attestation;
+  if (input.detail !== undefined) out.detail = input.detail;
+  if (input.failedLink !== undefined) out.failedLink = input.failedLink;
+  if (input.ks256Attestations !== undefined) {
+    out.ks256Attestations = input.ks256Attestations;
+    // The first attestation that carried the run, in the 0.6 singular shape.
+    const first = used[0];
+    if (first !== undefined && input.result.ok) {
+      out.ks256Attestation = {
+        chainId: first.chainId,
+        blockNumber: first.blockNumber,
+        blockHash: first.blockHash,
+        address: first.address,
+      };
+    }
   }
   return out;
 }

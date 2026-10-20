@@ -114,7 +114,7 @@ export async function buildEs256Cert(
 }
 
 /** One `.sth`: a consistency proof body, signed by the sealer, cert at 1000. */
-async function buildLink(
+export async function buildLink(
   fx: Ks256Fixture,
   cert: Uint8Array,
   size2: bigint,

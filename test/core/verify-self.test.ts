@@ -9,6 +9,7 @@
  * that far yet). This file asserts the same facts through `verifySelf`.
  */
 import { describe, expect, it } from "vitest";
+import { BURIAL_MANIFEST, readFixture } from "../../src/node/fixtures.js";
 import { verifySelf, type SelfBundle } from "../../src/core/index.js";
 import { GOLDEN_MANIFEST, fromHex } from "../../src/node/fixtures.js";
 import { readSelfBundle } from "./self-bundle.js";
@@ -175,5 +176,25 @@ describe("verifySelf — an explicit known-accumulator root", () => {
     expect(r.diagnostics.map((d) => d.code)).not.toContain(
       "self_chain_not_walked",
     );
+  });
+});
+
+describe("verifySelf — a checkpoint-chain root carries the chain failure's detail", () => {
+  it("passes detail and failedLink through", async () => {
+    const chain = BURIAL_MANIFEST.checkpointFiles.map((f) =>
+      readFixture(`golden/burial/${f}`),
+    );
+    // The bundle's own key does not root the burial log's chain.
+    const bundle = readSelfBundle();
+    const r = await verifySelf(bundle, {
+      root: {
+        root: "checkpoint-chain",
+        checkpoints: chain,
+        keyXy: bundle.logKeyXy,
+      },
+    });
+    expect(r.ok).toBe(false);
+    expect(r.detail).toMatch(/checkpoint chain did not verify/);
+    expect(r.failedLink).toBeTypeOf("number");
   });
 });

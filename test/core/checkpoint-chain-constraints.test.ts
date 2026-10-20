@@ -101,9 +101,10 @@ describe("checkpoint-chain: delegation limits per link", () => {
       keyXy: root.keyXy,
     });
     expect(r.ok).toBe(false);
-    expect(r.stage).toBe("parse");
-    expect(r.reason).toMatch(/checkpoint chain did not verify/);
-    expect(r.reason).toMatch(/\[delegation: delegation_out_of_range\]/);
+    expect(r.stage).toBe("signature");
+    expect(r.reason).toBe("delegation_out_of_range");
+    expect(r.failedLink).toBe(0);
+    expect(r.detail).toMatch(/checkpoint chain did not verify at link 0/);
     expect(r.diagnostics.map((d) => d.code)).toContain(
       "delegation_limit_violation",
     );
@@ -134,7 +135,7 @@ describe("checkpoint-chain: delegation limits per link", () => {
       keyXy: root.keyXy,
     });
     expect(r.ok).toBe(false);
-    expect(r.reason).toMatch(/\[delegation: delegation_expired\]/);
+    expect(r.reason).toBe("delegation_expired");
     expect(r.diagnostics.map((d) => d.code)).toContain(
       "delegation_limit_violation",
     );
@@ -173,8 +174,9 @@ describe("checkpoint-chain: delegation limits per link", () => {
       keyXy: root.keyXy,
     });
     expect(r.ok).toBe(false);
-    expect(r.reason).toMatch(/link 1\)/);
-    expect(r.reason).toMatch(/\[delegation: delegation_expired\]/);
+    expect(r.reason).toBe("delegation_expired");
+    expect(r.failedLink).toBe(1);
+    expect(r.detail).toMatch(/checkpoint 1 was signed under a delegation/);
   });
 
   it("a forged entryId cannot turn an honest chain into a delegation violation", async () => {
@@ -237,7 +239,8 @@ describe("checkpoint-chain: delegation limits per link", () => {
       keyXy: root.keyXy,
     });
     expect(bad.ok).toBe(false);
-    expect(bad.reason).toMatch(/\[delegation: delegation_out_of_range\]/);
+    expect(bad.reason).toBe("delegation_out_of_range");
+    expect(bad.failedLink).toBe(1);
   });
 });
 
@@ -267,7 +270,7 @@ describe("checkpoint-chain: KS256 contract root with an ERC-1271 attestation", (
     const fx = await fixture({ contractRoot: true });
     const r = await run(fx, await chainTrust(fx));
     expect(r.ok).toBe(false);
-    expect(r.reason).toMatch(/\[delegation: ks256_root_not_recovered\]/);
+    expect(r.reason).toBe("ks256_root_not_recovered");
   });
 
   it("an attestation with no genesis is an input error", async () => {
@@ -306,9 +309,7 @@ describe("checkpoint-chain: KS256 contract root with an ERC-1271 attestation", (
       encodedAttestationFor(fx, { chainId: 1n }),
     );
     expect(r.ok).toBe(false);
-    expect(r.reason).toMatch(
-      /\[delegation: ks256_attestation_chain_mismatch\]/,
-    );
+    expect(r.reason).toBe("ks256_attestation_chain_mismatch");
     expect(r.diagnostics.map((d) => d.code)).toContain("ks256_root_failure");
     expect(r.questions.sealing.status).toBe("failed");
     expect(r.questions.sealing.note).toMatch(

@@ -12,6 +12,7 @@ import {
   entryIdHexToIdtimestampBe8,
   verifyReceiptOffline,
   verifyReceiptOfflineWithKeys,
+  type Ks256Attestation,
   type ReceiptVerifyResult,
   type RootVerifyKey,
 } from "@forestrie/receipt-verify";
@@ -19,8 +20,8 @@ import type { VerifyResult } from "./result.js";
 import type { TrustRoot } from "./root.js";
 import {
   assembleResult,
+  attestationInputs,
   attestationOutcome,
-  chainAttestationOutcome,
   importKnownLogKey,
   inputFailureResult,
   isDetachedPayload,
@@ -45,6 +46,13 @@ export type VerifyReceiptInput = {
    * `known-log-key` roots. Fetched elsewhere; never fetched here.
    */
   ks256Attestation?: Uint8Array;
+  /**
+   * Several attestations, for a Safe that rotated its delegate (one
+   * certificate per delegate, one attestation per certificate). Combined with
+   * `ks256Attestation` when both are given. Every one is reported as used or
+   * unused (with the reason) in the result.
+   */
+  ks256Attestations?: readonly Uint8Array[];
 };
 
 /** SHA-256 over the payload — the leaf's inner ContentHash. */
@@ -89,21 +97,19 @@ export async function verifyReceipt(
   }
 
   try {
-    const plan = planAttestation(input.trust, input.ks256Attestation);
+    const plan = planAttestation(input.trust, attestationInputs(input));
     switch (input.trust.root) {
       case "genesis": {
         const genesisCbor = input.trust.genesis;
-        const call = (att: boolean) =>
+        const call = (atts: Ks256Attestation[]) =>
           verifyReceiptOffline({
             genesisCbor,
             receiptCbor: input.receipt,
             payload: input.payload,
             idtimestampBe8,
-            ...(att && plan.attestation !== undefined
-              ? { ks256Attestation: plan.attestation }
-              : {}),
+            ...(atts.length > 0 ? { ks256Attestations: atts } : {}),
           });
-        const result = await call(true);
+        const result = await call(plan.attestations);
         return assembleResult({
           root,
           kind: "payload",
@@ -112,29 +118,30 @@ export async function verifyReceipt(
           ...(await attestationOutcome(
             plan,
             result,
-            () => call(false),
+            call,
             () => decodeTrustRootFromGenesis(genesisCbor),
+            input.receipt,
           )),
         });
       }
       case "known-log-key": {
         const knownKey = await resolveKnownLogKey(input.trust);
-        const call = async (att: boolean): Promise<ReceiptVerifyResult> =>
+        const call = async (
+          atts: Ks256Attestation[],
+        ): Promise<ReceiptVerifyResult> =>
           remapKnownKeyFailure(
             await verifyReceiptOfflineWithKeys({
               receiptCbor: input.receipt,
               payload: input.payload,
               idtimestampBe8,
               trustKeys: [knownKey],
-              ...(att && plan.attestation !== undefined
-                ? { ks256Attestation: plan.attestation }
-                : {}),
+              ...(atts.length > 0 ? { ks256Attestations: atts } : {}),
               ...(plan.forestGenesisCbor !== undefined
                 ? { forestGenesisCbor: plan.forestGenesisCbor }
                 : {}),
             }),
           );
-        const result = await call(true);
+        const result = await call(plan.attestations);
         return assembleResult({
           root,
           kind: "payload",
@@ -143,8 +150,9 @@ export async function verifyReceipt(
           ...(await attestationOutcome(
             plan,
             result,
-            () => call(false),
+            call,
             async () => knownKey,
+            input.receipt,
           )),
         });
       }
@@ -165,27 +173,25 @@ export async function verifyReceipt(
       }
       case "checkpoint-chain": {
         const rootKeys = await rootKeysFor(input.trust);
-        const { result, anchor, attestationNeeded, mechanisms } =
-          await verifyAtCheckpointChain({
-            receiptCbor: input.receipt,
-            idtimestampBe8,
-            inner: await innerHash(input.payload),
-            checkpoints: input.trust.checkpoints,
-            rootKeys,
-            attestation: plan,
-          });
+        const chain = await verifyAtCheckpointChain({
+          receiptCbor: input.receipt,
+          idtimestampBe8,
+          inner: await innerHash(input.payload),
+          checkpoints: input.trust.checkpoints,
+          rootKeys,
+          attestation: plan,
+        });
         return assembleResult({
           root,
           kind: "payload",
-          result,
+          result: chain.result,
           detachedPayload,
-          anchor,
-          ...chainAttestationOutcome(
-            plan,
-            result,
-            attestationNeeded === true,
-            mechanisms ?? [],
-          ),
+          ...(chain.anchor !== undefined ? { anchor: chain.anchor } : {}),
+          chainStage: chain.chainStage,
+          detail: chain.detail,
+          failedLink: chain.failedLink,
+          ks256Attestations: chain.ks256Attestations,
+          attestationUnusedLabel: chain.attestationUnusedLabel,
         });
       }
     }

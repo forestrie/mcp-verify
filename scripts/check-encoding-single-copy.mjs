@@ -19,7 +19,7 @@
  * DO NOT "fix" a red run here with a pnpm `overrides` entry. An override
  * SILENCES the exact skew this gate exists to detect, by rewriting a
  * transitive dep to a version its parent was never tested against. Today the
- * pin is naturally satisfiable — receipt-verify@3.1.0 depends on
+ * pin is naturally satisfiable — receipt-verify@3.2.0 depends on
  * @forestrie/encoding@0.9.1 exactly, and we declare 0.9.1 exactly, so there
  * is exactly one copy without any coercion. If a future dependency drags a
  * second copy in, fix or drop that dependency (or wait for its bump), never

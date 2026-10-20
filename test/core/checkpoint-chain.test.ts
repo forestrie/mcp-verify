@@ -152,6 +152,8 @@ describe("verifyGrantReceipt at the checkpoint-chain root", () => {
       },
     });
     expect(r.ok).toBe(false);
-    expect(r.reason).toMatch(/checkpoint chain did not verify/);
+    expect(r.stage).toBe("signature");
+    expect(r.reason).toBeDefined();
+    expect(r.detail).toMatch(/checkpoint chain did not verify/);
   });
 });
