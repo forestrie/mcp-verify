@@ -196,11 +196,10 @@ how the label-1000 delegation certificate is checked against the root.
   `checkpoint-chain` the `links` it carried) or `unused` with a reason:
   `not_needed` (its certificate verified without it), `no_matching_certificate`
   (no verified certificate has its digest and signature hash), `duplicate`
-  (another attestation for the same certificate was tried first) or
-  `run_failed` (the run failed under `genesis`/`known-log-key`, where no
-  attestation carried it). Under `checkpoint-chain`, `rejected` lists
-  attestations that were tried for a link's certificate and refused there
-  (wrong address, chain or magic), with the `links`; an attestation can be
+  (another attestation for the same certificate was tried first). `rejected`
+  lists attestations made for a certificate (digest and signature hash match)
+  but refused there (wrong address, chain or magic), with the `links` under
+  `checkpoint-chain`; an attestation can be
   both used and rejected. An unused attestation on a passing run raises
   `ks256_attestation_not_consulted`; it is never silently ignored. Indexes are
   positions in the supplied list, singular first.
@@ -234,6 +233,24 @@ The `rpc` mode the `forestrie` CLI offers — the only one that touches the
 network — is excluded from this package **by construction**. There is no
 branch for it, and a CI gate bundles the core for `platform: "browser"` and
 fails on any edge to a node builtin, let alone a socket.
+
+## 0.7.0 changes
+
+Upgrading from 0.6.x, with `@forestrie/receipt-verify` 3.2.0:
+
+- **Security fix.** A peak attached to a receipt is now checked against the
+  peak recomputed from leaf and inclusion path, not trusted. In 0.6.x a
+  receipt attaching a genuinely anchored peak but carrying the wrong payload
+  passed the `known-accumulator` and `checkpoint-chain` roots. Accumulator
+  peaks are also matched by position, not just value.
+- **`checkpoint-chain` failures changed shape.** They are now `stage=signature`
+  (`parse` for a bad input or unreadable receipt) with the typed `reason`
+  (`delegation_out_of_range`, `delegation_expired`, `ks256_*`, ...) plus
+  `failedLink` and `detail`. In 0.6.x they were `stage=parse` with a reason
+  ending `[delegation: X]`. `mmrStart` is now enforced.
+- **Attestations.** `ks256Attestations` (array) joins `ks256Attestation`, and
+  the result's `ks256Attestations` reports `{used, rejected, unused}` for every
+  one supplied.
 
 ## The four questions
 
