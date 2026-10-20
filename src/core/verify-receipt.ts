@@ -115,8 +115,12 @@ export async function verifyReceipt(
           kind: "payload",
           result,
           detachedPayload,
-          ...(await attestationOutcome(plan, result, call, () =>
-            decodeTrustRootFromGenesis(genesisCbor),
+          ...(await attestationOutcome(
+            plan,
+            result,
+            call,
+            () => decodeTrustRootFromGenesis(genesisCbor),
+            input.receipt,
           )),
         });
       }
@@ -148,6 +152,7 @@ export async function verifyReceipt(
             result,
             call,
             async () => knownKey,
+            input.receipt,
           )),
         });
       }

@@ -14,7 +14,9 @@ import {
   decodeKs256Attestation,
   importEs256PublicKeyFromGrantDataXy64,
   knownLogKeyFromBytes,
+  extractKs256DelegationDigest,
   parseReceipt,
+  selectKs256Attestation,
   verifyReceiptAgainstCheckpointChain,
   verifyReceiptOfflineAgainstKnownAccumulator,
   type CheckpointLinkRecord,
@@ -219,7 +221,8 @@ export type AttestationOutcome = {
  * ecrecover (or an ES256 root) and none was needed, so no attested guarantee
  * is claimed; otherwise each attestation is tried alone, and the first that
  * carries the run is the one used. Offline, cheap, no chain call either way.
- * A failing run reports every attestation as unused (`run_failed`): none
+ * A failing run reports none as used: ones made for this receipt's
+ * certificate are `rejected`, the rest unused (`no_matching_certificate`); none
  * carried it.
  */
 export async function attestationOutcome(
@@ -227,17 +230,38 @@ export async function attestationOutcome(
   result: ReceiptVerifyResult,
   rerun: (attestations: Ks256Attestation[]) => Promise<ReceiptVerifyResult>,
   rootKey: () => Promise<RootVerifyKey>,
+  receipt: Uint8Array,
 ): Promise<AttestationOutcome> {
   const atts = plan.attestations;
   if (atts.length === 0) return {};
+  // Does this attestation speak for THIS receipt's certificate (digest and
+  // signature hash)? If so and it did not carry the run, it was rejected
+  // (wrong address, chain or magic), not merely unmatched.
+  let cert: ReturnType<typeof extractKs256DelegationDigest> = null;
+  try {
+    cert = extractKs256DelegationDigest(receipt);
+  } catch {
+    cert = null;
+  }
+  const matches = (a: Ks256Attestation) =>
+    cert !== null && selectKs256Attestation(cert, [a]) !== undefined;
+  const classify = (
+    list: { a: Ks256Attestation; index: number }[],
+  ): Pick<Ks256AttestationsReport, "rejected" | "unused"> => ({
+    rejected: list
+      .filter(({ a }) => matches(a))
+      .map(({ a, index }) => ({
+        index,
+        digest: `0x${bytesToHex(a.digest)}`,
+        links: [],
+      })),
+    unused: list
+      .filter(({ a }) => !matches(a))
+      .map(({ a, index }) => unusedEntry(a, index, "no_matching_certificate")),
+  });
+  const indexed = atts.map((a, index) => ({ a, index }));
   if (!result.ok) {
-    return {
-      ks256Attestations: {
-        used: [],
-        rejected: [],
-        unused: atts.map((a, index) => unusedEntry(a, index, "run_failed")),
-      },
-    };
+    return { ks256Attestations: { used: [], ...classify(indexed) } };
   }
   if ((await rerun([])).ok) {
     // Why they were not needed: an ES256 root never consults an attestation;
@@ -257,21 +281,19 @@ export async function attestationOutcome(
   // The first that carries the run is the one used; if none does alone
   // (cannot happen for a single certificate), credit the first.
   const usedIndex = Math.max(0, passesAlone.indexOf(true));
+  const rest = classify(
+    indexed.filter(({ index }) => index !== usedIndex && !passesAlone[index]),
+  );
   return {
     ks256Attestations: {
       used: [usedEntry(atts[usedIndex]!, usedIndex)],
-      rejected: [],
-      unused: atts
-        .map((a, index) =>
-          index === usedIndex
-            ? null
-            : unusedEntry(
-                a,
-                index,
-                passesAlone[index] ? "duplicate" : "no_matching_certificate",
-              ),
-        )
-        .filter((e) => e !== null),
+      rejected: rest.rejected,
+      unused: [
+        ...rest.unused,
+        ...indexed
+          .filter(({ index }) => index !== usedIndex && passesAlone[index])
+          .map(({ a, index }) => unusedEntry(a, index, "duplicate")),
+      ].sort((x, y) => x.index - y.index),
     },
   };
 }
@@ -657,7 +679,7 @@ export function assembleResult(input: AssembleInput): VerifyResult {
     out.ks256Attestations = input.ks256Attestations;
     // The first attestation that carried the run, in the 0.6 singular shape.
     const first = used[0];
-    if (first !== undefined) {
+    if (first !== undefined && input.result.ok) {
       out.ks256Attestation = {
         chainId: first.chainId,
         blockNumber: first.blockNumber,

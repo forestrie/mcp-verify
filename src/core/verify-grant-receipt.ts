@@ -198,8 +198,12 @@ export async function verifyGrantReceipt(
           kind: "grant",
           result,
           detachedPayload,
-          ...(await attestationOutcome(plan, result, call, () =>
-            decodeTrustRootFromGenesis(genesisCbor),
+          ...(await attestationOutcome(
+            plan,
+            result,
+            call,
+            () => decodeTrustRootFromGenesis(genesisCbor),
+            input.receipt,
           )),
         });
       }
@@ -231,6 +235,7 @@ export async function verifyGrantReceipt(
             result,
             call,
             async () => knownKey,
+            input.receipt,
           )),
         });
       }

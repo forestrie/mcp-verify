@@ -275,6 +275,8 @@ export async function verifySelf(
   };
   if (reason !== undefined) out.reason = reason;
   if (base.anchor !== undefined) out.anchor = base.anchor;
+  if (base.detail !== undefined) out.detail = base.detail;
+  if (base.failedLink !== undefined) out.failedLink = base.failedLink;
   return out;
 }
 

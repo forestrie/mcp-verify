@@ -341,7 +341,7 @@ const Ks256AttestationsReportSchema = z
   .describe(
     "every supplied attestation, accounted for: used ones carried the run " +
       "(valid under the contract's signers at each named block only); unused " +
-      "ones say why (not_needed, no_matching_certificate, duplicate, run_failed); rejected ones were tried for a link's certificate and refused. " +
+      "ones say why (not_needed, no_matching_certificate, duplicate); rejected ones were tried for a link's certificate and refused. " +
       "Index is the position in the supplied list (ks256Attestation first, then ks256Attestations)",
   );
 

@@ -67,7 +67,11 @@ export type RecomputedPeak = {
  * `SHA-256(idtimestamp ‖ inner)`, which is what binds the bytes to the moment
  * they were sequenced.
  *
- * @throws if the receipt does not parse — callers that need a verdict rather
+ * The peak is always recomputed from leaf + path; an attached peak is only
+ * checked for equality, never used in its place.
+ *
+ * @throws if the receipt does not parse, or an attached peak disagrees with
+ * the recomputation — callers that need a verdict rather
  * than an exception should let `verifyReceiptOfflineAgainstKnownAccumulator`
  * produce it, which is what the verify paths do.
  */
@@ -81,12 +85,6 @@ export async function recomputeReceiptPeak(input: {
     parsed.proof.leafIndex !== undefined
       ? parsed.proof.leafIndex
       : (parsed.proof.mmrIndex ?? 0n);
-  // An attached-payload receipt carries its peak explicitly; only a detached
-  // one has to derive it. Honouring the explicit peak keeps this in step with
-  // what the library's own accumulator check does.
-  if (parsed.explicitPeak !== null) {
-    return { peak: parsed.explicitPeak, leafIndex };
-  }
   const leafHash = await univocityLeafHash(input.idtimestampBe8, input.inner);
   const peak = await calculateRoot(
     new SubtleHasher(),
@@ -94,6 +92,14 @@ export async function recomputeReceiptPeak(input: {
     parsed.proof,
     leafIndex,
   );
+  // A peak attached to the receipt is never trusted over the recomputation
+  // (receipt-verify 3.2.0 closed that hole); if one is attached it must equal
+  // what leaf + path commit to.
+  if (parsed.explicitPeak !== null && !bytesEqual(parsed.explicitPeak, peak)) {
+    throw new Error(
+      "attached peak does not match the peak recomputed from leaf and inclusion path",
+    );
+  }
   return { peak, leafIndex };
 }
 

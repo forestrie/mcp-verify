@@ -128,7 +128,7 @@ export type Ks256AttestationReport = {
  * is valid at. `unused` ones say why: `not_needed` (the certificate verified
  * without it), `no_matching_certificate` (no verified certificate has its
  * digest and signature hash), `duplicate` (another attestation for the same
- * certificate was tried first) or `run_failed`. `rejected` ones were tried
+ * certificate was tried first). `rejected` ones were tried
  * for a link's certificate and refused there. `links` (checkpoint-chain) are
  * the indexes of the links it carried or was refused at.
  */
