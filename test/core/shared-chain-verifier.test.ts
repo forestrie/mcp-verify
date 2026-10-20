@@ -11,12 +11,14 @@ import {
   encodeCborDeterministic,
 } from "@forestrie/encoding";
 import {
+  recomputeReceiptPeak,
   verifyReceipt,
   type TrustRoot,
   type VerifyResult,
 } from "../../src/core/index.js";
 import {
   buildEs256Cert,
+  buildLink,
   coveringLink,
   leafUnixSeconds,
   newEs256Root,
@@ -35,6 +37,7 @@ import {
   encodeKs256Attestation,
 } from "@forestrie/receipt-verify";
 import { LANE_A_MANIFEST, readFixture } from "../../src/node/fixtures.js";
+import { univocityLeafHash } from "@forestrie/receipt-verify";
 import { snapshotOverPeaks } from "./accumulator.js";
 
 const PAYLOAD = new TextEncoder().encode("a chain-rooted statement");
@@ -195,6 +198,8 @@ describe("checkpoint-chain: several attestations (a Safe that rotated its delega
     expect(r.diagnostics.map((d) => d.code)).toContain("ks256_root_failure");
     // Never silently ignored, even on a failing run.
     expect(r.ks256Attestations?.used.map((u) => u.index)).toEqual([0]);
+    // ... but a failed run claims no attested block in the singular shape.
+    expect(r.ks256Attestation).toBeUndefined();
   });
 
   it("the singular field alone cannot cover both certificates", async () => {
@@ -225,6 +230,8 @@ describe("checkpoint-chain: several attestations (a Safe that rotated its delega
     );
     expect(note?.message).toMatch(/#1/);
     expect(note?.message).toMatch(/never silently ignored/);
+    // Some attestations carried the run: no "not needed" / ecrecover wording.
+    expect(note?.message).not.toMatch(/ecrecover|every link verified without/);
     expect(r.questions.sealing.note).toMatch(/block 1234 on chain 84532/);
   });
 
@@ -318,8 +325,32 @@ describe("genesis root: several attestations", () => {
     const r = await run(fx, trust(fx), { many: [stray] });
     expect(r.ok).toBe(false);
     expect(r.ks256Attestations?.unused).toMatchObject([
-      { index: 0, reason: "run_failed" },
+      { index: 0, reason: "no_matching_certificate" },
     ]);
+    expect(r.ks256Attestations?.rejected).toEqual([]);
+  });
+
+  it("an attestation made for the certificate but refused (wrong chain) is rejected, not unmatched", async () => {
+    const fx = await fixture({ contractRoot: true });
+    const wrongChain = encodedAttestationFor(fx, { chainId: 1n });
+    const r = await run(fx, trust(fx), { many: [wrongChain] });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toBe("ks256_attestation_chain_mismatch");
+    expect(r.ks256Attestations?.rejected).toMatchObject([{ index: 0 }]);
+    expect(r.ks256Attestations?.unused).toEqual([]);
+    // A failed run claims no attested block.
+    expect(r.ks256Attestation).toBeUndefined();
+  });
+
+  it("a refused attestation alongside the one that carries a passing run is still rejected", async () => {
+    const fx = await fixture({ contractRoot: true });
+    const wrongChain = encodedAttestationFor(fx, { chainId: 1n });
+    const r = await run(fx, trust(fx), {
+      many: [wrongChain, encodedAttestationFor(fx)],
+    });
+    expect(r.ok).toBe(true);
+    expect(r.ks256Attestations?.used.map((u) => u.index)).toEqual([1]);
+    expect(r.ks256Attestations?.rejected.map((u) => u.index)).toEqual([0]);
   });
 });
 
@@ -409,5 +440,115 @@ describe("known-accumulator over the REAL lane-A bundle", () => {
     );
     expect(r.ok).toBe(false);
     expect(r.anchor?.anchored).toBe(false);
+  });
+});
+
+describe("checkpoint-chain: typed mappings", () => {
+  async function chain() {
+    const fx = await fixture();
+    const root = await newEs256Root();
+    const t = leafUnixSeconds(fx);
+    const cert = await buildEs256Cert(root, fx, {
+      mmrStart: 0n,
+      mmrEnd: 65535n,
+      issuedAt: t - 60,
+      expiresAt: t + 3600,
+    });
+    return { fx, root, cert };
+  }
+
+  it("a garbled receipt under a valid chain is a parse failure", async () => {
+    const { fx, root, cert } = await chain();
+    const r = await run(
+      fx,
+      {
+        root: "checkpoint-chain",
+        checkpoints: [await coveringLink(fx, cert)],
+        keyXy: root.keyXy,
+      },
+      {},
+      PAYLOAD,
+      new Uint8Array([1, 2, 3]),
+    );
+    expect(r.ok).toBe(false);
+    expect(r.stage).toBe("parse");
+    expect(r.reason).toBe("receipt_malformed");
+  });
+
+  it("a match on a non-zero peak reports that peak's index", async () => {
+    const { fx, root, cert } = await chain();
+    // A receipt for the leaf at node 3 of a size-4 MMR (peaks: node 2, node 3):
+    // empty path, so the leaf hash IS the peak, and it is peak position 1.
+    const leafIdx = 3n;
+    const entryId = `${"02".repeat(8)}${leafIdx.toString(16).padStart(16, "0")}`;
+    const protectedBytes = encodeCborDeterministic(
+      new Map<number, unknown>([[1, -7]]),
+    );
+    const receipt = encodeCborDeterministic([
+      protectedBytes,
+      new Map<number, unknown>([
+        [
+          396,
+          new Map<number, unknown>([
+            [
+              -1,
+              [
+                new Map<number, unknown>([
+                  [1, leafIdx],
+                  [2, []],
+                ]),
+              ],
+            ],
+          ]),
+        ],
+      ]),
+      null,
+      new Uint8Array(64),
+    ]);
+    const leafHash = await univocityLeafHash(fx.idtimestampBe8, fx.inner);
+    const node2 = new Uint8Array(32).fill(0x55);
+    const link = await buildLink(
+      fx,
+      cert,
+      4n,
+      [0n, 4n, [], [node2, leafHash]],
+      [node2, leafHash],
+    );
+    const r = await verifyReceipt({
+      receipt,
+      payload: PAYLOAD,
+      entryId,
+      trust: {
+        root: "checkpoint-chain",
+        checkpoints: [link],
+        keyXy: root.keyXy,
+      },
+    });
+    expect(r.ok).toBe(true);
+    expect(r.anchor).toMatchObject({ matchedPeak: 1, peakCount: 2 });
+  });
+});
+
+describe("recomputeReceiptPeak never trusts an attached peak", () => {
+  it("throws when the attached peak disagrees with leaf + path", async () => {
+    const fx = await fixture();
+    const cose = decodeCborDeterministic(fx.receipt) as unknown[];
+    cose[2] = new Uint8Array(32).fill(0x77);
+    const forged = encodeCborDeterministic(cose);
+    await expect(
+      recomputeReceiptPeak({
+        receiptCbor: forged,
+        idtimestampBe8: fx.idtimestampBe8,
+        inner: fx.inner,
+      }),
+    ).rejects.toThrow(/attached peak does not match/);
+    // The honest attached peak is accepted and equals the recomputation.
+    cose[2] = fx.peak;
+    const ok = await recomputeReceiptPeak({
+      receiptCbor: encodeCborDeterministic(cose),
+      idtimestampBe8: fx.idtimestampBe8,
+      inner: fx.inner,
+    });
+    expect(ok.peak).toEqual(fx.peak);
   });
 });
