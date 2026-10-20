@@ -29,7 +29,12 @@ import {
   encodedAttestationFor,
   type Ks256Fixture,
 } from "./ks256-fixture.js";
-import { encodeKs256Attestation } from "@forestrie/receipt-verify";
+import {
+  decodeKnownAccumulator,
+  encodeKnownAccumulator,
+  encodeKs256Attestation,
+} from "@forestrie/receipt-verify";
+import { LANE_A_MANIFEST, readFixture } from "../../src/node/fixtures.js";
 import { snapshotOverPeaks } from "./accumulator.js";
 
 const PAYLOAD = new TextEncoder().encode("a chain-rooted statement");
@@ -245,6 +250,32 @@ describe("checkpoint-chain: several attestations (a Safe that rotated its delega
     expect(r.ks256Attestation).toBeUndefined();
   });
 
+  it("a duplicate attestation for a certificate is reported unused: duplicate", async () => {
+    const { fx, trust, attA, attB } = await rotated();
+    const r = await run(fx, trust, { many: [attA, attA, attB] });
+    expect(r.ok).toBe(true);
+    expect(r.ks256Attestations?.used.map((u) => u.index)).toEqual([0, 2]);
+    expect(r.ks256Attestations?.unused).toMatchObject([
+      { index: 1, reason: "duplicate" },
+    ]);
+  });
+
+  it("an attestation tried for a certificate and refused is listed as rejected", async () => {
+    const { fx, trust, a } = await rotated();
+    const wrongChain = encodedAttestationFor(fx, {
+      digest: a.certDigest,
+      signatureHash: a.certSignatureHash,
+      chainId: 1n,
+    });
+    const r = await run(fx, trust, { many: [wrongChain] });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toBe("ks256_attestation_chain_mismatch");
+    expect(r.ks256Attestations?.rejected).toMatchObject([
+      { index: 0, links: [0] },
+    ]);
+    expect(r.ks256Attestations?.used).toEqual([]);
+  });
+
   it("malformed attestation bytes name the entry", async () => {
     const { fx, trust, attA } = await rotated();
     const r = await run(fx, trust, {
@@ -340,5 +371,43 @@ describe("the attached-peak fix (receipt-verify 3.2.0)", () => {
     const r = await run(fx, trust, {}, wrong, attached);
     expect(r.ok).toBe(false);
     expect(r.reason).toBe("peak_not_in_checkpoint_chain");
+  });
+});
+
+describe("known-accumulator over the REAL lane-A bundle", () => {
+  const receipt = readFixture("lane-a/receipt.cbor");
+  const statement = readFixture("lane-a/statement.cose");
+  const accumulator = readFixture("lane-a/accumulator.cbor");
+  const entryId = LANE_A_MANIFEST.entryId;
+
+  const verify = (acc: Uint8Array) =>
+    verifyReceipt({
+      receipt,
+      payload: statement,
+      entryId,
+      trust: { root: "known-accumulator", accumulator: acc },
+    });
+
+  it("passes against the accumulator the contract published, at the peak's position", async () => {
+    const r = await verify(accumulator);
+    expect(r.ok).toBe(true);
+    expect(r.anchor).toMatchObject({
+      anchored: true,
+      anchoredSize: "11",
+      peakCount: 3,
+      matchedPeak: 1,
+    });
+  });
+
+  it("fails when the real peak is in the list at the wrong position", async () => {
+    const snap = decodeKnownAccumulator(accumulator);
+    const peaks = [...snap.accumulator];
+    // Swap the real peak (position 1: node 9 of peaks [6, 9, 10]) to the front.
+    [peaks[0], peaks[1]] = [peaks[1]!, peaks[0]!];
+    const r = await verify(
+      encodeKnownAccumulator({ ...snap, accumulator: peaks }),
+    );
+    expect(r.ok).toBe(false);
+    expect(r.anchor?.anchored).toBe(false);
   });
 });
