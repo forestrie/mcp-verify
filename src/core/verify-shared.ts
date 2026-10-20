@@ -234,6 +234,7 @@ export async function attestationOutcome(
     return {
       ks256Attestations: {
         used: [],
+        rejected: [],
         unused: atts.map((a, index) => unusedEntry(a, index, "run_failed")),
       },
     };
@@ -244,6 +245,7 @@ export async function attestationOutcome(
     return {
       ks256Attestations: {
         used: [],
+        rejected: [],
         unused: atts.map((a, index) => unusedEntry(a, index, "not_needed")),
       },
       attestationUnusedLabel:
@@ -258,6 +260,7 @@ export async function attestationOutcome(
   return {
     ks256Attestations: {
       used: [usedEntry(atts[usedIndex]!, usedIndex)],
+      rejected: [],
       unused: atts
         .map((a, index) =>
           index === usedIndex
@@ -265,7 +268,7 @@ export async function attestationOutcome(
             : unusedEntry(
                 a,
                 index,
-                passesAlone[index] ? "not_needed" : "no_matching_certificate",
+                passesAlone[index] ? "duplicate" : "no_matching_certificate",
               ),
         )
         .filter((e) => e !== null),
@@ -504,6 +507,11 @@ export async function verifyAtCheckpointChain(input: {
       used: out.attestations.used.map((u) =>
         usedEntry(atts[u.index]!, u.index, u.links),
       ),
+      rejected: out.attestations.rejected.map((u) => ({
+        index: u.index,
+        digest: `0x${bytesToHex(atts[u.index]!.digest)}`,
+        links: u.links,
+      })),
       unused: out.attestations.unused.map((u) =>
         unusedEntry(atts[u.index]!, u.index, u.reason),
       ),

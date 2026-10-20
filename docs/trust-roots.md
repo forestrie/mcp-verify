@@ -188,17 +188,20 @@ how the label-1000 delegation certificate is checked against the root.
   certificate per delegate, and each certificate needs its own attestation.
   Supply them as the `ks256Attestations` array (the singular
   `ks256Attestation` keeps working; if both are given they are combined,
-  singular first). Each certificate takes the attestation whose digest and
-  signature hash are its own; selection never makes an attestation
+  singular first). Every attestation is tried for each
+  certificate and the first that resolves wins; nothing makes an attestation
   acceptable on its own (address, digest, signature hash, forest chain id and
   magic are still checked). Every supplied attestation is accounted for in
   `ks256Attestations`: `used` (with the block it speaks for, and under
   `checkpoint-chain` the `links` it carried) or `unused` with a reason:
   `not_needed` (its certificate verified without it), `no_matching_certificate`
-  (no verified certificate has its digest and signature hash), `rejected`
-  (it matched the certificate of the link that failed) or `run_failed` (the
-  run failed under `genesis`/`known-log-key`, where no attestation carried
-  it). An unused attestation on a passing run raises
+  (no verified certificate has its digest and signature hash), `duplicate`
+  (another attestation for the same certificate was tried first) or
+  `run_failed` (the run failed under `genesis`/`known-log-key`, where no
+  attestation carried it). Under `checkpoint-chain`, `rejected` lists
+  attestations that were tried for a link's certificate and refused there
+  (wrong address, chain or magic), with the `links`; an attestation can be
+  both used and rejected. An unused attestation on a passing run raises
   `ks256_attestation_not_consulted`; it is never silently ignored. Indexes are
   positions in the supplied list, singular first.
 - **Under `checkpoint-chain`.** The attestations are offered to every link's

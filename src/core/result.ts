@@ -127,9 +127,10 @@ export type Ks256AttestationReport = {
  * `used` ones carried the run: they are the only ones whose block the verdict
  * is valid at. `unused` ones say why: `not_needed` (the certificate verified
  * without it), `no_matching_certificate` (no verified certificate has its
- * digest and signature hash), `rejected` (it matched the certificate of the
- * link that failed) or `run_failed`. `links` (checkpoint-chain) are the
- * indexes of the links it carried.
+ * digest and signature hash), `duplicate` (another attestation for the same
+ * certificate was tried first) or `run_failed`. `rejected` ones were tried
+ * for a link's certificate and refused there. `links` (checkpoint-chain) are
+ * the indexes of the links it carried or was refused at.
  */
 export type Ks256AttestationsReport = {
   used: (Ks256AttestationReport & {
@@ -137,6 +138,8 @@ export type Ks256AttestationsReport = {
     digest: string;
     links?: number[];
   })[];
+  /** Tried for a link's certificate and refused there (wrong address, chain, magic). */
+  rejected: { index: number; digest: string; links: number[] }[];
   unused: { index: number; digest: string; reason: string }[];
 };
 

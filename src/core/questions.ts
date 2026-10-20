@@ -132,8 +132,8 @@ const UNUSED_REASON_NOTES: Record<string, string> = {
   not_needed: "not needed: its certificate verified without it",
   no_matching_certificate:
     "no verified certificate has this attestation's digest and signature hash",
-  rejected:
-    "it matched the certificate of the link that failed (wrong address, chain or magic)",
+  duplicate:
+    "another attestation for the same certificate was tried first",
   run_failed: "the run failed, so it carried nothing",
 };
 
