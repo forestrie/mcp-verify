@@ -44,6 +44,12 @@ receipt contains: [TRANSPARENCY.md](../TRANSPARENCY.md).
   receipt newer than the snapshot fails closed with a refresh remedy, not as
   tamper. Never source the snapshot from the operator's own store, and check
   its log id and contract binding yourself, because this package does not.
+  The peak is always recomputed from the leaf and inclusion path: since 0.7.0
+  (`@forestrie/receipt-verify` 3.2.0) a peak attached to the receipt is
+  checked against that recomputation instead of being trusted. Before, a
+  receipt attaching a genuinely anchored peak but carrying the wrong payload
+  passed this root (and `checkpoint-chain`, which inherited it); upgrade if
+  you relied on either for a receipt whose COSE payload is attached.
 - **`checkpoint-chain`** when you hold the checkpoints and have neither chain
   nor tile access, or when log growth has buried the receipt's peak. Each
   later link's signed consistency proof commits the earlier accumulator
@@ -61,9 +67,11 @@ A delegation certificate authorises its key only for checkpoints whose
 link is judged against its own signed tree size (label -65933), after its
 certificate resolves and before its signature is accepted:
 
-- **`delegation_out_of_range`**: `signedSize - 1 > mmrEnd`. Exact; it is the
-  bound the on-chain `delegationVerifier` applies, so the chain rejects what
-  the contract would have refused to publish.
+- **`delegation_out_of_range`**: `signedSize - 1 > mmrEnd` or
+  `signedSize - 1 < mmrStart`. Exact on both sides; it is the bound the
+  on-chain `delegationVerifier` applies, so the chain rejects what the
+  contract would have refused to publish. (Since 0.7.0 the lower bound is
+  enforced too; 0.6.1 enforced `mmrEnd` only.)
 - **`delegation_expired`**: the link's signed size covers the receipt's leaf
   (`signedSize > leaf mmrIndex`) and the leaf's time (from its idtimestamp,
   never wall-clock) is later than `expiresAt`. A covering checkpoint is signed
@@ -71,14 +79,11 @@ certificate resolves and before its signature is accepted:
   lifetime. A link that does not cover the leaf says nothing about the leaf's
   time and is held only to the size bound.
 
-**Known gap: `mmrStart` is not enforced offline in this release.** The
-contract enforces `size - 1 >= mmrStart`; this verifier does not, so a link
-signed below a certificate's `mmrStart` still passes here. (receipt-verify's
-receipt path leaves it out too: a leaf below `mmrStart` can legitimately sit
-in a checkpoint above it, so the leaf alone cannot decide it.) The
-`issuedAt` lower bound is also not enforced, for a different reason: a cert
-is legitimately signed a few seconds after the leaf it covers, so
-`issuedAt > leafTime` is normal.
+The `issuedAt` lower bound is not enforced, for a reason: a cert is
+legitimately signed a few seconds after the leaf it covers, so
+`issuedAt > leafTime` is normal. (`mmrStart` is judged per link, on the
+signed size, not on the receipt's leaf: a leaf below `mmrStart` can
+legitimately sit in a checkpoint above it.)
 
 A certificate without all of labels 3, 4, 8 and 9 carries no checkable
 limits and is not checked, as in receipt-verify.
@@ -90,11 +95,18 @@ the inclusion path binds the mmrIndex), over every link whose signed size
 covers the leaf. A wrong or forged `entryId` therefore reports
 `peak_not_in_checkpoint_chain`, never a delegation violation.
 
-A violation fails the chain as an input-shaped `parse` result whose `reason`
-ends `[delegation: <reason>]`, with a `delegation_limit_violation` diagnostic
-(KS256 reasons raise `ks256_root_failure`), and the `sealing` answer says the
-checkpoint's delegation failed. If the receipt does not parse, only the size
-bound applies (the receipt cannot pass anyway).
+The chain is verified by `@forestrie/receipt-verify`'s shared
+checkpoint-chain verifier (`verifyReceiptAgainstCheckpointChain`, since
+0.7.0; this package no longer carries its own copy), and its typed outcome is
+the result. A violation reports the typed `reason` (`delegation_out_of_range`,
+`delegation_expired`, or a `ks256_*` reason) at `stage=signature`, with
+`failedLink` naming the link and `detail` saying so in words, plus a
+`delegation_limit_violation` diagnostic (KS256 reasons raise
+`ks256_root_failure`); the `sealing` answer says the checkpoint's delegation
+failed. A missing trust root or a forest genesis without a chain binding is an
+input error (`stage=parse`). The peak is always recomputed from the leaf and
+inclusion path, never read from the receipt, so a receipt that attaches a
+peak cannot vouch for itself.
 
 ### The genesis document
 
@@ -151,8 +163,10 @@ how the label-1000 delegation certificate is checked against the root.
   The verdict is then **valid under the contract's signers at the attested
   block** and not a statement about the contract's current owners. The result
   carries a `ks256Attestation` block (chain id, block number and hash,
-  address) so a caller sees the narrower guarantee. The attested
-  block is reported only when the attestation was needed: the verify is
+  address) so a caller sees the narrower guarantee; with several
+  attestations it names the first that carried the run, and
+  `ks256Attestations.used` lists every one. An attested
+  block is reported only when its attestation was needed: the verify is
   re-run without it, and if it still passes (an EOA root, by ecrecover) no
   block is reported and a `ks256_attestation_not_consulted` diagnostic says
   the attestation was not used. With an ES256 root the same diagnostic says the attestation does not apply (the root is an ES256 key), not that ecrecover ran. When an attestation was needed, the `sealing` answer states the narrower guarantee (block, chain, and that you trust whoever fetched the attestation). `forestGenesis`, like the key, is caller-asserted, and must decode as a forest genesis with a chain binding or the call is an input error.
@@ -170,20 +184,36 @@ how the label-1000 delegation certificate is checked against the root.
   rejected as an input error rather than ignored. `checkpoint-chain`
   accepts a KS256 `genesis` root (an EOA by ecrecover, a Safe with the
   attestation); its `keyXy` stays ES256.
-- **Under `checkpoint-chain`.** The attestation is offered to every link's
+- **Several attestations.** A Safe that rotated its delegate signs one
+  certificate per delegate, and each certificate needs its own attestation.
+  Supply them as the `ks256Attestations` array (the singular
+  `ks256Attestation` keeps working; if both are given they are combined,
+  singular first). Each certificate takes the attestation whose digest and
+  signature hash are its own; selection never makes an attestation
+  acceptable on its own (address, digest, signature hash, forest chain id and
+  magic are still checked). Every supplied attestation is accounted for in
+  `ks256Attestations`: `used` (with the block it speaks for, and under
+  `checkpoint-chain` the `links` it carried) or `unused` with a reason:
+  `not_needed` (its certificate verified without it), `no_matching_certificate`
+  (no verified certificate has its digest and signature hash), `rejected`
+  (it matched the certificate of the link that failed) or `run_failed` (the
+  run failed under `genesis`/`known-log-key`, where no attestation carried
+  it). An unused attestation on a passing run raises
+  `ks256_attestation_not_consulted`; it is never silently ignored. Indexes are
+  positions in the supplied list, singular first.
+- **Under `checkpoint-chain`.** The attestations are offered to every link's
   delegation certificate, and the forest chain id is read from the
   supplied `genesis` (an attestation with no `genesis`, or a genesis without
   a chain binding, is an input error: a bare `keyXy` carries no chain).
-  One attestation binds ONE certificate digest and signature. A chain whose
-  links were signed under different certificates (a delegation rotated
-  mid-chain) therefore fails closed at the first link the attestation does
-  not match, with `ks256_attestation_digest_mismatch`; fetch an attestation
-  per certificate you need to cover, or use a chain that stays under one.
-  The attested block is reported when at least one link verified only
-  because of the attestation (each link is re-resolved without it, purely
-  and offline); otherwise a `ks256_attestation_not_consulted` diagnostic
-  says it was unused. The verdict's `sealing` answer carries the same
-  narrower attested-block wording as at the other roots.
+  One attestation binds ONE certificate digest and signature, so a chain
+  whose links were signed under different certificates (a delegation rotated
+  mid-chain) needs one attestation per certificate; with one missing the
+  chain fails closed at the first link it does not cover (`failedLink`), with
+  the precise `ks256_attestation_*` reason. The attested blocks are reported
+  for the links that verified only because of an attestation (each link is
+  re-resolved without it, purely and offline). The verdict's `sealing` answer
+  carries the same narrower attested-block wording as at the other roots,
+  naming every block.
 
 Failure reasons, each named in the result's `diagnostics`:
 `ks256_root_not_recovered`, `delegation_not_ks256`,

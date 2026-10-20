@@ -67,9 +67,15 @@ elsewhere (`@forestrie/mcp-resolve`'s `fetch_ks256_attestation` tool, or
 _under the contract's signers at the attested block_, and says which block.
 A 20-byte `ks256Address` asserts, and does not prove, which log it owns.
 `checkpoint-chain` takes `ks256Attestation` too, with the KS256 `genesis` for
-the forest chain id; one attestation covers one delegation certificate.
-`checkpoint-chain` also enforces each link's delegation limits (`mmrEnd`,
-`expiresAt`): `delegation_out_of_range`, `delegation_expired`.
+the forest chain id; one attestation covers one delegation certificate, so a
+Safe that rotated its delegate needs one per certificate: pass them as the
+`ks256Attestations` array. Every attestation is reported in the result as
+used, or unused with a reason; none is silently ignored.
+`checkpoint-chain` also enforces each link's delegation limits (`mmrStart`,
+`mmrEnd`, `expiresAt`): `delegation_out_of_range`, `delegation_expired`.
+Since 0.7.0 a peak attached to a receipt is checked against the leaf and
+inclusion path rather than trusted (`@forestrie/receipt-verify` 3.2.0), which
+closes a hole in the `known-accumulator` and `checkpoint-chain` roots.
 Details: [docs/trust-roots.md](docs/trust-roots.md#ks256-roots-and-erc-1271-attestations).
 
 The roots are not ordered by strength. The first two check the operator's signature

@@ -108,7 +108,8 @@ export const TrustRootSchema = z
         .describe(
           "Trust an on-chain accumulator snapshot you hold. The only root that " +
             "answers split-view. Checks no signature locally — the anchor is the " +
-            "authority.",
+            "authority. The peak is recomputed from leaf + inclusion path; a " +
+            "peak attached to the receipt is checked against it, never trusted.",
         ),
       z
         .object({
