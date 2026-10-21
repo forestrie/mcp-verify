@@ -108,5 +108,5 @@ published independently of this package.
 Verification is pure over bytes, so this runs entirely in the caller's
 process. An agent that installs it and verifies a receipt has performed the
 demonstration **without contacting Forestrie at all**. That is the point.
-The README's [Not a trust circle](README.md#not-a-trust-circle) section is
-about making it checkable rather than asking you to take it on faith.
+Why that holds without taking the operator on faith:
+[You do not have to trust the operator](README.md#you-do-not-have-to-trust-the-operator).

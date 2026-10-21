@@ -70,45 +70,40 @@ check time is weaker than one kept from registration, what a signature root
 cannot distinguish, and the demo transcript:
 [docs/trust-roots.md](docs/trust-roots.md).
 
-## Not a trust circle
+## You do not have to trust the operator
 
-> The root of trust is the univocity checkpoint the receipt chains to, not the
-> package; the package supplies the arithmetic, which any independent
-> implementation can re-run.
+A receipt means something without assuming the Forestrie operator is honest:
 
-Which is why this repo goes to some trouble to make that re-running possible:
+- **A pipe, not a store.** Only content hashes enter the log. Your statement
+  and its receipt stay with you, and verification is pure over those bytes,
+  so a check never has to ask the operator for anything.
+- **The operator does not hold the authority.** A log's root key belongs to
+  the log's owner, and the forest's bootstrap key to its curator. The
+  operator's sealer holds only a short, scoped lease to sign checkpoints.
+- **One published history.** Checkpoints are published to the univocity
+  contract, which refuses any that are inconsistent with what it already
+  holds. The accumulator roots above check against that.
 
-- **A differential test** against the published `@forestrie/forestrie-cli`
-  npm package, pinned at an exact version. For every tamper variant under both
-  signature roots, our `ok`, `stage`, `reason` and `stages[]` must equal the
-  reference's byte for byte. Currently 18 tests, zero disagreements. See
-  [docs/differential-test.md](docs/differential-test.md).
-- **Frozen conformance vectors**, sha256-pinned to their manifest, shipped
-  inside the tarball. See [fixtures/PROVENANCE.md](fixtures/PROVENANCE.md).
-- **`files` includes `src`.** The package that asks you to trust its
-  arithmetic ships the arithmetic.
-- **Exact, provenance-attested dependencies** — no bundling, so
-  `npm ls` and `npm audit signatures` both see the real graph. Bundling would
-  hide `@forestrie/receipt-verify`'s own SLSA attestation behind ours.
+An operator can still decline to act, and that is visible. It cannot forge,
+rewrite or re-root a log. Who holds which key, and what an operator can and
+cannot do:
+[key custody](https://github.com/forestrie/protocol/blob/main/spec/key-custody-and-choice.md)
+and
+[operator powers](https://github.com/forestrie/protocol/blob/main/spec/trust-boundaries-and-operator-powers.md).
 
-The verification itself is `@forestrie/receipt-verify@1.0.0`, which is
-published, MIT, and SLSA-attested independently of this package.
-`decode_receipt`'s rendering stays a local implementation — over the same
-published packages, against the same public
-[label registry](https://github.com/forestrie/protocol/blob/main/spec/label-registry.md) —
-rather than a dependency on `@forestrie/forestrie-cli`, whose published
-decoder is otherwise a drop-in. Delegating to it has been tried twice and
-reverted twice: the two label tables still name some codepoints with
-different text, and that text is output the tool prints, so adopting it is a
-deliberate change to what you see rather than a dependency bump. The
-consolation is that it keeps the differential test's decode comparison
-honest — two independent renderers that agree, rather than one compared with
-itself. See [docs/dependency-surface.md](docs/dependency-surface.md).
+## This package's own provenance
 
-At release time, this package also registers its own provenance in a
-Forestrie log and ships the receipt inside the tarball — two independent
-trust roots, npm's SLSA provenance and a Forestrie receipt, rather than one
-circular one. See [docs/self-registration.md](docs/self-registration.md).
+Software provenance is the familiar use case for a transparency log, so this
+package applies it to itself. Every release registers a small statement
+(package name, version, git commit) in a Forestrie log and ships the receipt
+inside the tarball. `npx -y @forestrie/mcp-verify verify --self`, or the
+`verify_self` tool, checks it offline. This complements npm's SLSA
+provenance; it does not replace it. Today the receipt chains to a development
+lane log. Details: [docs/self-registration.md](docs/self-registration.md).
+
+The verification arithmetic comes from `@forestrie/receipt-verify`, which is
+published and attested separately, and is checked against the reference
+`forestrie` CLI: [docs/differential-test.md](docs/differential-test.md).
 
 ## Registry
 
