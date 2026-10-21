@@ -91,45 +91,39 @@ check time is weaker than one kept from registration, what a signature root
 cannot distinguish, and the demo transcript:
 [docs/trust-roots.md](docs/trust-roots.md).
 
-## Not a trust circle
+## You do not have to trust the operator
 
-> The root of trust is the univocity checkpoint the receipt chains to, not the
-> package; the package supplies the arithmetic, which any independent
-> implementation can re-run.
+A receipt means something without assuming the Forestrie operator is honest:
 
-Which is why this repo goes to some trouble to make that re-running possible:
+- **A pipe, not a store.** Only content hashes enter the log. Your statement
+  and its receipt stay with you, and verification is pure over those bytes,
+  so a check never has to ask the operator for anything.
+- **The operator does not hold the authority.** A log's root key belongs to
+  the log's owner, and the instance bootstrap key to whoever deployed the
+  forest's contract. The operator's sealer signs checkpoints only for logs
+  that have leased its key, within each lease's MMR range.
+- **One published history.** Checkpoints are published to the univocity
+  contract, which refuses any that are inconsistent with what it already
+  holds. The accumulator roots above check against that.
 
-- **Frozen conformance vectors**, sha256-pinned to their manifest, shipped
-  inside the tarball. See [fixtures/PROVENANCE.md](fixtures/PROVENANCE.md).
-- **`files` includes `src`.** The package that asks you to trust its
-  arithmetic ships the arithmetic.
-- **Exact, provenance-attested dependencies** — no bundling, so
-  `npm ls` and `npm audit signatures` both see the real graph. Bundling would
-  hide `@forestrie/receipt-verify`'s own SLSA attestation behind ours.
+An operator can still decline to act, and that is visible: it can refuse
+admission, withhold data it serves, or stop sealing. It cannot rewrite or
+fork anchored history, or sign for a log that has not leased its key. Who
+holds which key, and what an operator can and cannot do:
+[key custody](https://github.com/forestrie/protocol/blob/main/spec/key-custody-and-choice.md)
+and
+[operator powers](https://github.com/forestrie/protocol/blob/main/spec/trust-boundaries-and-operator-powers.md).
 
-The verification itself is `@forestrie/receipt-verify`, pinned to an exact
-version, published, MIT, and SLSA-attested independently of this package.
-`decode_receipt`'s rendering stays a local implementation — over the same
-published packages, against the same public
-[label registry](https://github.com/forestrie/protocol/blob/main/spec/label-registry.md) —
-rather than a dependency on `@forestrie/forestrie-cli`, whose published
-decoder is otherwise a drop-in. Delegating to it has been tried twice and
-reverted twice: the two label tables still name some codepoints with
-different text, and that text is output the tool prints, so adopting it is a
-deliberate change to what you see rather than a dependency bump. See
-[AGENTS.md](AGENTS.md).
+## This package's own provenance
 
-Installing the package pulls in more than a verifier needs.
-`@modelcontextprotocol/sdk` brings a web stack, including express, hono,
-jose, cors and ajv, for HTTP transports this package never uses: it
-constructs only the stdio transport. The verification core never imports
-the SDK, and the browser-safety gate enforces that, so importing the
-package's `"."` export gives you the arithmetic without any of it.
-
-At release time, this package also registers its own provenance in a
-Forestrie log and ships the receipt inside the tarball — two independent
-trust roots, npm's SLSA provenance and a Forestrie receipt, rather than one
-circular one. See [docs/self-registration.md](docs/self-registration.md).
+Software provenance is the familiar use case for a transparency log, so this
+package applies it to itself. Every release registers a small statement
+(package name, version, git commit) in a Forestrie log and ships the receipt
+inside the tarball. `npx -y @forestrie/mcp-verify verify --self`, or the
+`verify_self` tool, checks it offline. This complements npm's SLSA
+provenance; it does not replace it. Today the receipt chains to a log on the
+public development lane. Details:
+[docs/self-registration.md](docs/self-registration.md).
 
 That bundle is also the subject of a worked example: fetching this
 package's own release receipt from the public lane, verifying it under the
@@ -138,6 +132,19 @@ root, and getting `split-view ok` from a chain read — end to end in a few
 seconds, with no account. It lives in
 [`@forestrie/mcp-resolve`'s README](https://github.com/forestrie/mcp-resolve#a-worked-example-one-receipt-end-to-end),
 because fetching is that package's job, not this one's.
+
+The verification arithmetic comes from `@forestrie/receipt-verify`, pinned
+to an exact version and published and attested separately. The tarball
+ships `src` and the frozen conformance vectors it is tested against
+([fixtures/PROVENANCE.md](fixtures/PROVENANCE.md)), so the arithmetic can be
+re-run rather than taken on trust.
+
+Installing the package pulls in more than a verifier needs.
+`@modelcontextprotocol/sdk` brings a web stack, including express, hono,
+jose, cors and ajv, for HTTP transports this package never uses: it
+constructs only the stdio transport. The verification core never imports
+the SDK, and the browser-safety gate enforces that, so importing the
+package's `"."` export gives you the arithmetic without any of it.
 
 ## Bundled resources, and the two calls they make runnable
 
