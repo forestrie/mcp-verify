@@ -1,7 +1,8 @@
 # @forestrie/mcp-verify
 
-An MCP server whose only tools verify and decode Forestrie receipts.
-**No backend, no account, no key, no network.**
+Verify a SCITT receipt from a Forestrie transparency log under a trust
+root you hold. **Offline: no backend, no account, no key, no network.**
+An MCP server whose only tools verify and decode receipts.
 
 ```json
 {
@@ -50,12 +51,32 @@ nothing"_, and an agent can see it without running anything.
 You do not ask for "verification". You say which root you trust, and the
 result says what that root can see:
 
-| Root                | What you supply                                             |
-| ------------------- | ----------------------------------------------------------- |
-| `genesis`           | the forest's genesis document, captured when you registered |
-| `known-log-key`     | a log owner key you hold out of band                        |
-| `known-accumulator` | a snapshot of the log's peaks, from a chain read            |
-| `checkpoint-chain`  | a retained chain of `.sth` checkpoints                      |
+| Root                | What you supply                                                                                        |
+| ------------------- | ------------------------------------------------------------------------------------------------------ |
+| `genesis`           | the forest's genesis document, captured when you registered                                            |
+| `known-log-key`     | a log owner key (`keyXy`, P-256) or KS256 address (`ks256Address`) you hold out of band                |
+| `known-accumulator` | a snapshot of the log's peaks, from a chain read                                                       |
+| `checkpoint-chain`  | a retained chain of `.sth` checkpoints, plus `genesis` or `keyXy`; delegation limits enforced per link |
+
+KS256 (secp256k1) roots verify offline too. An EOA root verifies by
+ecrecover, from a `genesis` or a `known-log-key` with `ks256Address`. A
+**contract** root (a Safe) cannot be checked without a chain read, which this
+package never makes: pass `ks256Attestation`, an ERC-1271 record fetched
+elsewhere (`@forestrie/mcp-resolve`'s `fetch_ks256_attestation` tool, or
+`forestrie-cli`'s `fetch-ks256-attestation`). The result is then valid
+_under the contract's signers at the attested block_, and says which block.
+A 20-byte `ks256Address` asserts, and does not prove, which log it owns.
+`checkpoint-chain` takes `ks256Attestation` too, with the KS256 `genesis` for
+the forest chain id; one attestation covers one delegation certificate, so a
+Safe that rotated its delegate needs one per certificate: pass them as the
+`ks256Attestations` array. Every attestation is reported in the result as
+used, or unused with a reason; none is silently ignored.
+`checkpoint-chain` also enforces each link's delegation limits (`mmrStart`,
+`mmrEnd`, `expiresAt`): `delegation_out_of_range`, `delegation_expired`.
+Since 0.7.0 a peak attached to a receipt is checked against the leaf and
+inclusion path rather than trusted (`@forestrie/receipt-verify` 3.2.0), which
+closes a hole in the `known-accumulator` and `checkpoint-chain` roots.
+Details: [docs/trust-roots.md](docs/trust-roots.md#ks256-roots-and-erc-1271-attestations).
 
 The roots are not ordered by strength. The first two check the operator's signature
 locally and cannot see a split view. The last two match the peak against an
@@ -78,15 +99,17 @@ A receipt means something without assuming the Forestrie operator is honest:
   and its receipt stay with you, and verification is pure over those bytes,
   so a check never has to ask the operator for anything.
 - **The operator does not hold the authority.** A log's root key belongs to
-  the log's owner, and the forest's bootstrap key to its curator. The
-  operator's sealer holds only a short, scoped lease to sign checkpoints.
+  the log's owner, and the instance bootstrap key to whoever deployed the
+  forest's contract. The operator's sealer signs checkpoints only for logs
+  that have leased its key, within each lease's MMR range.
 - **One published history.** Checkpoints are published to the univocity
   contract, which refuses any that are inconsistent with what it already
   holds. The accumulator roots above check against that.
 
-An operator can still decline to act, and that is visible. It cannot forge,
-rewrite or re-root a log. Who holds which key, and what an operator can and
-cannot do:
+An operator can still decline to act, and that is visible: it can refuse
+admission, withhold data it serves, or stop sealing. It cannot rewrite or
+fork anchored history, or sign for a log that has not leased its key. Who
+holds which key, and what an operator can and cannot do:
 [key custody](https://github.com/forestrie/protocol/blob/main/spec/key-custody-and-choice.md)
 and
 [operator powers](https://github.com/forestrie/protocol/blob/main/spec/trust-boundaries-and-operator-powers.md).
@@ -98,16 +121,84 @@ package applies it to itself. Every release registers a small statement
 (package name, version, git commit) in a Forestrie log and ships the receipt
 inside the tarball. `npx -y @forestrie/mcp-verify verify --self`, or the
 `verify_self` tool, checks it offline. This complements npm's SLSA
-provenance; it does not replace it. Today the receipt chains to a development
-lane log. Details: [docs/self-registration.md](docs/self-registration.md).
+provenance; it does not replace it. Today the receipt chains to a log on the
+public development lane. Details:
+[docs/self-registration.md](docs/self-registration.md).
 
-The verification arithmetic comes from `@forestrie/receipt-verify`, which is
-published and attested separately, and is checked against the reference
-`forestrie` CLI: [docs/differential-test.md](docs/differential-test.md).
+That bundle is also the subject of a worked example: fetching this
+package's own release receipt from the public lane, verifying it under the
+bundled key, seeing the documented `delegation_invalid` under the genesis
+root, and getting `split-view ok` from a chain read — end to end in a few
+seconds, with no account. It lives in
+[`@forestrie/mcp-resolve`'s README](https://github.com/forestrie/mcp-resolve#a-worked-example-one-receipt-end-to-end),
+because fetching is that package's job, not this one's.
+
+The verification arithmetic comes from `@forestrie/receipt-verify`, pinned
+to an exact version and published and attested separately. The tarball
+ships `src` and the frozen conformance vectors it is tested against
+([fixtures/PROVENANCE.md](fixtures/PROVENANCE.md)), so the arithmetic can be
+re-run rather than taken on trust.
+
+Installing the package pulls in more than a verifier needs.
+`@modelcontextprotocol/sdk` brings a web stack, including express, hono,
+jose, cors and ajv, for HTTP transports this package never uses: it
+constructs only the stdio transport. The verification core never imports
+the SDK, and the browser-safety gate enforces that, so importing the
+package's `"."` export gives you the arithmetic without any of it.
+
+## Bundled resources, and the two calls they make runnable
+
+The tarball ships its fixtures as `forestrie://fixtures/…` MCP resources,
+so an agent that holds nothing of its own can run a real verification.
+Two calls reach a pass from resources alone; both are asserted by
+`test/node/mcp-smoke.test.ts`.
+
+**A grant receipt at the genesis root** — `verify_grant_receipt` with:
+
+| Argument         | Resource                                                                         |
+| ---------------- | -------------------------------------------------------------------------------- |
+| `receipt`        | `golden/grant-receipt.cbor`                                                      |
+| `committedGrant` | `golden/committed-grant.cbor` (derived from `golden/manifest.json` at read time) |
+| `entryId`        | the text of `golden/entry-id.txt`                                                |
+| `trust`          | `{root: "genesis", genesis: golden/grant-genesis.cbor}`                          |
+
+Result: `verify-grant: PASS · root=genesis · sealing ok, split-view not
+answered at this root, append-authority ok, attribution ok`.
+
+**A payload receipt at an accumulator root, offline, against a real
+anchor** — `verify_receipt` with the lane-A bundle
+([fixtures/lane-a/PROVENANCE.md](fixtures/lane-a/PROVENANCE.md)): a real
+receipt from a public lane and the accumulator the univocity contract had
+published for its log at block 46770471, captured by an independent chain
+read. (That lane's content was reset on 2026-09-20; the bytes still verify,
+the URLs they came from no longer resolve.)
+
+| Argument  | Resource                                                            |
+| --------- | ------------------------------------------------------------------- |
+| `receipt` | `lane-a/receipt.cbor`                                               |
+| `payload` | `lane-a/statement.cose`                                             |
+| `entryId` | the text of `lane-a/entry-id.txt`                                   |
+| `trust`   | `{root: "known-accumulator", accumulator: lane-a/accumulator.cbor}` |
+
+Result: `verify: PASS · root=known-accumulator · sealing ok, split-view
+ok, append-authority ok, attribution ok`, with `anchor.matchedPeak` set.
+Unlike the `demo`'s self-derived snapshot, this anchor is the contract's
+published state, so the split-view answer is evidence as of that block.
+The same receipt passes under `{root: "known-log-key", keyXy: {b64: <text
+of lane-a/log-key.xy.b64>}}` and reports `delegation_invalid` under
+`{root: "genesis", genesis: lane-a/genesis.cbor}`, because its log is a
+grandchild of the forest root ([docs/self-registration.md](docs/self-registration.md)).
+
+A resource's bytes are passed back as `{b64: <the blob>}`; a text
+resource such as `lane-a/log-key.xy.b64` is base64 text already, so its
+text goes in `b64` as is. `golden/burial/public-key.xy.b64` offers the
+burial chain's root key the same way, so `checkpoint-chain` can be driven
+from resources — to its documented negative verdict, since the burial
+bundle ships no leaf preimage.
 
 ## Registry
 
-Once phase 3 lands, this server is listed as `dev.forestrie/verify` in the
+This server is listed as `dev.forestrie/verify` in the
 [official MCP registry](https://registry.modelcontextprotocol.io).
 
 ## Development
@@ -116,13 +207,10 @@ Once phase 3 lands, this server is listed as `dev.forestrie/verify` in the
 mise install           # node 22.14.0, pnpm 10.6.5
 pnpm install
 pnpm test              # browser-safe gate + encoding-copy gate + server.json gate + unit tests
-pnpm test:differential # npm-installs the pinned forestrie CLI version
 pnpm build
 ```
 
 Conventions, invariants and the release checklist: [AGENTS.md](AGENTS.md).
-Dependency surface and install weight:
-[docs/dependency-surface.md](docs/dependency-surface.md).
 
 ## Licence
 

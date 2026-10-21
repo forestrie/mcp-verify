@@ -1,14 +1,15 @@
 /**
- * `verifySelf` over the frozen real bundle (plan-2609-02 steps 2.4/2.5).
+ * `verifySelf` over the frozen real bundle.
  *
  * `test/fixtures/self-bundle/PROVENANCE.md` records what was verified at
- * capture with the reference CLI: `--payload statement.cose` PASSES,
+ * capture with the `forestrie` CLI: `--payload statement.cose` PASSES,
  * `--payload provenance.json` reports `signature_invalid`, and
  * `--genesis genesis.cbor` reports `delegation_invalid` (the publications
  * log is a grandchild of the forest root; nothing walks the grant chain
  * that far yet). This file asserts the same facts through `verifySelf`.
  */
 import { describe, expect, it } from "vitest";
+import { BURIAL_MANIFEST, readFixture } from "../../src/node/fixtures.js";
 import { verifySelf, type SelfBundle } from "../../src/core/index.js";
 import { GOLDEN_MANIFEST, fromHex } from "../../src/node/fixtures.js";
 import { readSelfBundle } from "./self-bundle.js";
@@ -175,5 +176,25 @@ describe("verifySelf — an explicit known-accumulator root", () => {
     expect(r.diagnostics.map((d) => d.code)).not.toContain(
       "self_chain_not_walked",
     );
+  });
+});
+
+describe("verifySelf — a checkpoint-chain root carries the chain failure's detail", () => {
+  it("passes detail and failedLink through", async () => {
+    const chain = BURIAL_MANIFEST.checkpointFiles.map((f) =>
+      readFixture(`golden/burial/${f}`),
+    );
+    // The bundle's own key does not root the burial log's chain.
+    const bundle = readSelfBundle();
+    const r = await verifySelf(bundle, {
+      root: {
+        root: "checkpoint-chain",
+        checkpoints: chain,
+        keyXy: bundle.logKeyXy,
+      },
+    });
+    expect(r.ok).toBe(false);
+    expect(r.detail).toMatch(/checkpoint chain did not verify/);
+    expect(r.failedLink).toBeTypeOf("number");
   });
 });

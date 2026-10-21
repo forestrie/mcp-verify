@@ -1,5 +1,5 @@
 /**
- * D3's root → four-questions mapping, plus the collapse diagnostic.
+ * The root → four-questions mapping, plus the collapse diagnostic.
  *
  * The mapping is root-dependent, and that is the entire point of the Auditor:
  * the same bytes answer more questions under an accumulator root, and the
@@ -59,7 +59,89 @@ export type QuestionsInput = {
   /** Set only at the accumulator/checkpoint roots: did the recomputed peak
    *  match a trusted accumulator? `undefined` means the check never ran. */
   anchored?: boolean | undefined;
+  /** The arithmetic's failure reason, when it gave one. */
+  reason?: string | undefined;
+  /** An ERC-1271 attestation was supplied (and the run passed). */
+  attested?: boolean | undefined;
+  /** Attestations were supplied but not needed (why, when one label fits). */
+  attestationUnused?: "ecrecover" | "es256-root" | "not-needed" | undefined;
+  /** Chain and block of each attestation the run NEEDED (decimal strings). */
+  attestedAt?: { chainId: string; blockNumber: string }[] | undefined;
+  /** Every supplied attestation the run did not use, with the reason. */
+  unusedAttestations?:
+    { index: number; digest: string; reason: string }[] | undefined;
+  /**
+   * checkpoint-chain: the typed stage of the failure (`chain`: a link was
+   * refused; `delegation`: a covering link's certificate had expired).
+   */
+  chainStage?: string | undefined;
 };
+
+/**
+ * The reason a checkpoint-chain failure carries when the chain itself was
+ * refused (`stage` chain: a link's delegation, size bound or signature) or a
+ * covering link's certificate had expired (`delegation`); `undefined` for any
+ * other failure. The KS256 and delegation-limit diagnostics are keyed on it.
+ */
+export function chainDelegationReason(
+  chainStage: string | undefined,
+  reason: string | undefined,
+): string | undefined {
+  return chainStage === "chain" || chainStage === "delegation"
+    ? reason
+    : undefined;
+}
+
+/** Is this chain refusal about a delegation certificate (not the fold)? */
+function isDelegationLike(reason: string): boolean {
+  return reason.startsWith("delegation_") || isKs256Reason(reason);
+}
+
+/** Does this failure reason come from the KS256 root path? */
+export function isKs256Reason(reason: string | undefined): boolean {
+  return (
+    reason !== undefined &&
+    (reason.startsWith("ks256_") || reason === "delegation_not_ks256")
+  );
+}
+
+/** What each KS256 reason means and what to do about it. */
+export const KS256_REASON_NOTES: Record<string, string> = {
+  ks256_root_not_recovered:
+    "The delegation certificate's secp256k1 signature did not recover to the KS256 root address. Offline that is either a wrong signer or a contract root (a Safe); for a contract, supply a ks256Attestation (fetched elsewhere) bound to this certificate.",
+  delegation_not_ks256:
+    "The root is a KS256 address but the delegation certificate is not KS256-signed (wrong algorithm, WebAuthn envelope, or malformed).",
+  ks256_root_requires_delegation:
+    "The root is a KS256 address, which can only vouch for a delegation certificate, but the receipt carries none.",
+  ks256_attestation_address_mismatch:
+    "The attestation was made for a different contract address than the root.",
+  ks256_attestation_digest_mismatch:
+    "The attestation covers a different certificate digest than this receipt's delegation certificate.",
+  ks256_attestation_signature_mismatch:
+    "The attestation's signature hash does not match this receipt's delegation certificate signature.",
+  ks256_attestation_chain_mismatch:
+    "The attestation was made on a different chain than the forest's genesis chain; the same address on another chain can have other owners.",
+  ks256_attestation_magic_invalid:
+    "The attested isValidSignature call did not return the ERC-1271 magic value.",
+  ks256_attestation_chain_unbound:
+    "An attestation was supplied but its chain cannot be checked against a forest chain binding.",
+};
+
+/** What each reason an attestation went unused means. */
+const UNUSED_REASON_NOTES: Record<string, string> = {
+  not_needed: "not needed: its certificate verified without it",
+  no_matching_certificate:
+    "no verified certificate has this attestation's digest and signature hash",
+  duplicate: "another attestation for the same certificate was tried first",
+};
+
+/** Root-specific remedy for ks256_attestation_chain_unbound. */
+function chainUnboundNote(root: RootName): string {
+  if (root === "known-log-key") {
+    return "An attestation was supplied but no forest genesis, so its chain cannot be checked. Supply trust.forestGenesis (read only for its chain id).";
+  }
+  return "An attestation was supplied but the genesis document carries no chain binding (no chain id), so the attestation cannot be bound to a chain.";
+}
 
 const NOT_ANSWERED: QuestionStatus = "not_answered_by_this_root";
 
@@ -87,6 +169,19 @@ function answer(status: QuestionStatus, note: string): QuestionAnswer {
  */
 function sealing(input: QuestionsInput): QuestionAnswer {
   const anchoredRoot = rootAnswersSplitView(input.root);
+  if (
+    input.ok &&
+    input.attestedAt !== undefined &&
+    input.attestedAt.length > 0
+  ) {
+    const at = input.attestedAt
+      .map((a) => `block ${a.blockNumber} on chain ${a.chainId}`)
+      .join("; ");
+    return answer(
+      "ok",
+      `valid under the contract's signers at ${at}, trusting the party that fetched the ERC-1271 attestation; this verifier made no chain call (a narrower guarantee than a locally verified signature)`,
+    );
+  }
   if (input.ok) {
     return answer(
       "ok",
@@ -95,10 +190,33 @@ function sealing(input: QuestionsInput): QuestionAnswer {
         : "checkpoint signature verified locally under the root's trust root",
     );
   }
+  const delegation = chainDelegationReason(input.chainStage, input.reason);
+  if (delegation !== undefined) {
+    if (!isDelegationLike(delegation)) {
+      return answer(
+        "failed",
+        `the checkpoint chain did not verify (${delegation}), so the chain's signatures are not trusted`,
+      );
+    }
+    return answer(
+      "failed",
+      `a checkpoint's delegation failed (${delegation}), so the chain's signatures are not trusted${
+        isKs256Reason(delegation)
+          ? " — see the ks256_root_failure diagnostic"
+          : ""
+      }`,
+    );
+  }
   if (input.stage === "parse") {
     return answer(
       NOT_ANSWERED,
       "the receipt did not decode, so no signature was reached",
+    );
+  }
+  if (isKs256Reason(input.reason)) {
+    return answer(
+      "failed",
+      "the KS256 root could not be tied to the receipt's delegation certificate — see the ks256_root_failure diagnostic",
     );
   }
   if (anchoredRoot) {
@@ -216,7 +334,7 @@ export function trustQuestions(input: QuestionsInput): TrustQuestions {
 /**
  * The diagnostics for a run. `detached_payload_stage_collapse` is emitted
  * exactly when the root is genesis-or-known-log-key AND the receipt is
- * detached-payload — the D3 claim in executable form. It is emitted on
+ * detached-payload — the stage-collapse claim in executable form. It is emitted on
  * success too: knowing that a PASS could not have distinguished those two
  * failures is as much a part of the trust story as the failure itself.
  */
@@ -245,6 +363,89 @@ export function diagnosticsFor(input: QuestionsInput): Diagnostic[] {
         `${ROOT_ANCHOR_NOTE[input.root]}, and that root is not independent evidence about ` +
         "which log state the rest of the world sees. A log that showed you a private branch " +
         "would produce a receipt that verifies exactly like this one.",
+    });
+  }
+
+  const delegationReason = chainDelegationReason(
+    input.chainStage,
+    input.reason,
+  );
+  const failure = delegationReason ?? input.reason;
+  if (!input.ok && isKs256Reason(failure)) {
+    out.push({
+      code: "ks256_root_failure",
+      message: `${failure}: ${
+        failure === "ks256_attestation_chain_unbound"
+          ? chainUnboundNote(input.root)
+          : (KS256_REASON_NOTES[failure ?? ""] ?? "a KS256 root check failed.")
+      }`,
+    });
+  }
+
+  if (
+    !input.ok &&
+    (delegationReason === "delegation_out_of_range" ||
+      delegationReason === "delegation_expired")
+  ) {
+    out.push({
+      code: "delegation_limit_violation",
+      message: `${delegationReason}: ${
+        delegationReason === "delegation_out_of_range"
+          ? "a checkpoint in the chain was signed at a tree size outside the range its delegation certificate authorises (signed size - 1 > mmrEnd, or signed size - 1 < mmrStart)."
+          : "a checkpoint that covers the receipt's leaf was signed under a delegation certificate that had already expired when the leaf was sequenced."
+      } The signing key was used outside its authorisation, so the chain is not trusted.`,
+    });
+  }
+
+  if (input.ok && input.attested === true) {
+    const many = (input.attestedAt?.length ?? 0) > 1;
+    out.push({
+      code: "ks256_attested_guarantee",
+      message:
+        (many
+          ? "Delegation certificates verified only with the supplied ERC-1271 attestations: "
+          : "The delegation certificate verified only with the supplied ERC-1271 attestation: ") +
+        "the contract root is valid under the contract's signers AT THE ATTESTED BLOCK" +
+        (many ? "S " : " ") +
+        "(a narrower guarantee than an EOA or ES256 root). This verifier never called the " +
+        "chain and trusts the attestation" +
+        (many ? "s" : "") +
+        " as the fetching party's chain read." +
+        (input.root === "known-log-key"
+          ? " The forest chain binding (forestGenesis), like the key, is asserted by you, not proven."
+          : ""),
+    });
+  }
+
+  const unused = input.unusedAttestations ?? [];
+  if (input.ok && unused.length > 0) {
+    const which = unused
+      .map((u) => `#${u.index} (${UNUSED_REASON_NOTES[u.reason] ?? u.reason})`)
+      .join(", ");
+    const lead =
+      unused.length === 1
+        ? "An ERC-1271 attestation was supplied but "
+        : `${unused.length} ERC-1271 attestations were supplied but `;
+    const plural = unused.length > 1;
+    const sentence =
+      input.attestationUnused === "es256-root"
+        ? lead +
+          (plural ? "do" : "does") +
+          " not apply: the root is an ES256 key, " +
+          "so the delegation certificate verified under it directly and no attestation is consulted."
+        : input.attestationUnused === "not-needed"
+          ? lead +
+            "not needed: every link verified without " +
+            (plural ? "them" : "it") +
+            " (by more than one kind of root), so no attested-block caveat applies."
+          : input.attestationUnused === "ecrecover"
+            ? lead +
+              "not needed: the KS256 root verified by " +
+              "ecrecover (an EOA), so no attested-block caveat applies."
+            : `${lead}not used.`;
+    out.push({
+      code: "ks256_attestation_not_consulted",
+      message: `${sentence} Unused: ${which}. An unused attestation is reported, never silently ignored.`,
     });
   }
 

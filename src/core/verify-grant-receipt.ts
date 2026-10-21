@@ -3,8 +3,15 @@
  *
  * Two verify functions rather than one with a union, because the leaf
  * commitment preimage differs — a payload receipt commits `SHA-256(payload)`,
- * a grant receipt commits the grant commitment hash — and mirroring the
- * reference CLI 1:1 buys a free differential test.
+ * a grant receipt commits the grant commitment hash. The `forestrie` CLI
+ * makes the same split, as `verify` and `verify-grant`.
+ *
+ * Under the known-accumulator root the two differ only in the leaf hash.
+ * `@forestrie/receipt-verify` has one
+ * `verifyReceiptOfflineAgainstKnownAccumulator` for both receipt kinds, and
+ * the caller supplies the leaf's inner hash: `SHA-256(payload)` for a payload
+ * receipt, `grantCommitmentHashFromGrant(grant)` for a grant receipt. There
+ * is no grant-specific entry point.
  */
 import {
   decodeForestrieGrantCose,
@@ -13,17 +20,27 @@ import {
   grantCommitmentHashFromGrant,
   verifyGrantReceiptOffline,
   verifyGrantReceiptOfflineWithKeys,
+  type Ks256Attestation,
   type ReceiptVerifyResult,
+  type RootVerifyKey,
 } from "@forestrie/receipt-verify";
-import { decodeGrantPayload, type Grant } from "@forestrie/encoding";
+import {
+  decodeCborDeterministic,
+  decodeGrantPayload,
+  type Grant,
+} from "@forestrie/encoding";
 import type { VerifyResult } from "./result.js";
 import type { TrustRoot } from "./root.js";
 import {
   assembleResult,
+  attestationInputs,
+  attestationOutcome,
   importKnownLogKey,
   inputFailureResult,
   isDetachedPayload,
+  planAttestation,
   remapKnownKeyFailure,
+  resolveKnownLogKey,
   verifyAtCheckpointChain,
   verifyAtKnownAccumulator,
   VerifyInputError,
@@ -36,29 +53,76 @@ export type VerifyGrantReceiptInput = {
   /** 32 lowercase hex. Required when the grant is raw rather than COSE. */
   entryId?: string;
   trust: TrustRoot;
+  /**
+   * Optional ERC-1271 attestation artifact (`encodeKs256Attestation` bytes)
+   * for a KS256 CONTRACT root. Usable only with the `genesis` and
+   * `known-log-key` roots. Fetched elsewhere; never fetched here.
+   */
+  ks256Attestation?: Uint8Array;
+  /**
+   * Several attestations, for a Safe that rotated its delegate (one
+   * certificate per delegate, one attestation per certificate). Combined with
+   * `ks256Attestation` when both are given. Every one is reported as used or
+   * unused (with the reason) in the result.
+   */
+  ks256Attestations?: readonly Uint8Array[];
 };
+
+/**
+ * Does the top-level CBOR item have Forestrie-Grant COSE Sign1's shape — a
+ * 4-element array? A raw grant payload is always a CBOR map
+ * (`grant-codec.ts`'s `encodeGrantPayload`/`encodeGrantPayloadV0Canonical`
+ * both emit one), so an array of 4 can only ever be a Sign1 four-tuple, never
+ * raw payload CBOR wearing COSE's clothes. Used to decide whether a
+ * `decodeForestrieGrantCose` failure is real (the bytes claimed to be COSE
+ * and were not valid) or just a sign the bytes were never COSE to begin with.
+ */
+function looksLikeForestrieGrantCose(bytes: Uint8Array): boolean {
+  try {
+    const raw: unknown = decodeCborDeterministic(bytes);
+    return Array.isArray(raw) && raw.length === 4;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Decode grant bytes: Forestrie-Grant COSE Sign1 first, raw payload CBOR
  * second — the same order and the same fallback as
  * `forestrie-cli/src/lib/verify-inputs.ts:decodeGrantBytes`, so the two agree
  * on what a caller may hand them.
+ *
+ * A bytestring shaped like a Sign1 four-tuple is dispatched to
+ * `decodeForestrieGrantCose` and stays there: if it fails (FOR-580: the
+ * embedded grant carries a retired key 7 or 8, say), that failure is
+ * surfaced directly rather than swallowed and retried as raw payload CBOR.
+ * The old code caught and retried on ANY COSE decode failure, which for a
+ * COSE-shaped input meant retrying `decodeGrantPayload` against the same
+ * four-element array — always a "must be a CBOR map" failure that named
+ * neither the real defect nor the retired key, masking a genuine COSE-path
+ * rejection behind a generic "neither COSE nor raw payload" message.
  */
 function decodeCommittedGrant(
   bytes: Uint8Array,
   entryId: string | undefined,
 ): { grant: Grant; idtimestampBe8: Uint8Array } {
-  try {
-    const decoded = decodeForestrieGrantCose(bytes);
-    return {
-      grant: decoded.grant,
-      idtimestampBe8:
-        entryId !== undefined
-          ? entryIdHexToIdtimestampBe8(entryId)
-          : decoded.idtimestampBe8,
-    };
-  } catch {
-    // Not a Forestrie-Grant COSE Sign1 — fall through to raw payload CBOR.
+  if (looksLikeForestrieGrantCose(bytes)) {
+    try {
+      const decoded = decodeForestrieGrantCose(bytes);
+      return {
+        grant: decoded.grant,
+        idtimestampBe8:
+          entryId !== undefined
+            ? entryIdHexToIdtimestampBe8(entryId)
+            : decoded.idtimestampBe8,
+      };
+    } catch (err) {
+      throw new VerifyInputError(
+        `committedGrant is a Forestrie-Grant COSE Sign1 but failed to decode: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
   }
   let grant: Grant;
   try {
@@ -78,17 +142,15 @@ function decodeCommittedGrant(
   return { grant, idtimestampBe8: entryIdHexToIdtimestampBe8(entryId) };
 }
 
-async function rootKeysFor(trust: TrustRoot): Promise<CryptoKey[]> {
-  const keys: CryptoKey[] = [];
+async function rootKeysFor(trust: TrustRoot): Promise<RootVerifyKey[]> {
+  const keys: RootVerifyKey[] = [];
   if (trust.root === "checkpoint-chain") {
     if (trust.keyXy !== undefined) {
       keys.push(await importKnownLogKey(trust.keyXy));
     }
     if (trust.genesis !== undefined) {
-      const root = await decodeTrustRootFromGenesis(trust.genesis);
-      // KS256 roots are a server-only concern; only P-256 roots can verify a
-      // checkpoint's COSE signature here.
-      if (root instanceof CryptoKey) keys.push(root);
+      // ES256 or KS256: passed through whole, never filtered.
+      keys.push(await decodeTrustRootFromGenesis(trust.genesis));
     }
   }
   return keys;
@@ -110,8 +172,7 @@ export async function verifyGrantReceipt(
   } catch (err) {
     // The MCP layer validates its own inputs rather than trusting the
     // reference to fail cleanly: forestrie-cli crashes with an uncaught stack
-    // trace when the committed grant is missing, even under --json
-    // (plan-2609-02 "What changed on contact" 3).
+    // trace when the committed grant is missing, even under --json.
     if (err instanceof VerifyInputError) {
       return inputFailureResult(root, "grant", err.message);
     }
@@ -119,36 +180,63 @@ export async function verifyGrantReceipt(
   }
 
   try {
+    const plan = planAttestation(input.trust, attestationInputs(input));
     switch (input.trust.root) {
       case "genesis": {
-        const result = await verifyGrantReceiptOffline({
-          genesisCbor: input.trust.genesis,
-          receiptCbor: input.receipt,
-          grant,
-          idtimestampBe8,
-        });
-        return assembleResult({
-          root,
-          kind: "grant",
-          result,
-          detachedPayload,
-        });
-      }
-      case "known-log-key": {
-        const knownKey = await importKnownLogKey(input.trust.keyXy);
-        const result: ReceiptVerifyResult = remapKnownKeyFailure(
-          await verifyGrantReceiptOfflineWithKeys({
+        const genesisCbor = input.trust.genesis;
+        const call = (atts: Ks256Attestation[]) =>
+          verifyGrantReceiptOffline({
+            genesisCbor,
             receiptCbor: input.receipt,
             grant,
             idtimestampBe8,
-            trustKeys: [knownKey],
-          }),
-        );
+            ...(atts.length > 0 ? { ks256Attestations: atts } : {}),
+          });
+        const result = await call(plan.attestations);
         return assembleResult({
           root,
           kind: "grant",
           result,
           detachedPayload,
+          ...(await attestationOutcome(
+            plan,
+            result,
+            call,
+            () => decodeTrustRootFromGenesis(genesisCbor),
+            input.receipt,
+          )),
+        });
+      }
+      case "known-log-key": {
+        const knownKey = await resolveKnownLogKey(input.trust);
+        const call = async (
+          atts: Ks256Attestation[],
+        ): Promise<ReceiptVerifyResult> =>
+          remapKnownKeyFailure(
+            await verifyGrantReceiptOfflineWithKeys({
+              receiptCbor: input.receipt,
+              grant,
+              idtimestampBe8,
+              trustKeys: [knownKey],
+              ...(atts.length > 0 ? { ks256Attestations: atts } : {}),
+              ...(plan.forestGenesisCbor !== undefined
+                ? { forestGenesisCbor: plan.forestGenesisCbor }
+                : {}),
+            }),
+          );
+        const result = await call(plan.attestations);
+        return assembleResult({
+          root,
+          kind: "grant",
+          result,
+          detachedPayload,
+          ...(await attestationOutcome(
+            plan,
+            result,
+            call,
+            async () => knownKey,
+            input.receipt,
+          )),
         });
       }
       case "known-accumulator": {
@@ -167,19 +255,26 @@ export async function verifyGrantReceipt(
         });
       }
       case "checkpoint-chain": {
-        const { result, anchor } = await verifyAtCheckpointChain({
+        const rootKeys = await rootKeysFor(input.trust);
+        const chain = await verifyAtCheckpointChain({
           receiptCbor: input.receipt,
           idtimestampBe8,
           inner: await grantCommitmentHashFromGrant(grant),
           checkpoints: input.trust.checkpoints,
-          rootKeys: await rootKeysFor(input.trust),
+          rootKeys,
+          attestation: plan,
         });
         return assembleResult({
           root,
           kind: "grant",
-          result,
+          result: chain.result,
           detachedPayload,
-          anchor,
+          ...(chain.anchor !== undefined ? { anchor: chain.anchor } : {}),
+          chainStage: chain.chainStage,
+          detail: chain.detail,
+          failedLink: chain.failedLink,
+          ks256Attestations: chain.ks256Attestations,
+          attestationUnusedLabel: chain.attestationUnusedLabel,
         });
       }
     }

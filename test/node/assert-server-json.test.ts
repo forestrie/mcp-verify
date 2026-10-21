@@ -1,8 +1,7 @@
 /**
  * `scripts/assert-server-json.mjs`'s `checkServerJson` — the registry-listing
  * version guard plus the registry schema's 100-character caps on
- * `description` and `title` (plan-2609-07 step 3.1, ported from
- * `@forestrie/mcp-resolve`).
+ * `description` and `title` (ported from `@forestrie/mcp-resolve`).
  *
  * The script lives under `scripts/`, not `src/`, so it is exercised directly
  * via dynamic import rather than through the package's public surface, the
@@ -83,7 +82,14 @@ describe("checkServerJson — registry length caps", () => {
   });
 
   it("a missing title is fine — title is optional", () => {
-    expect(REAL_SERVER.title).toBeUndefined();
-    expect(checkServerJson(REAL_PKG, REAL_SERVER)).toEqual([]);
+    const { title: _title, ...untitled } = REAL_SERVER;
+    expect(untitled.title).toBeUndefined();
+    expect(checkServerJson(REAL_PKG, untitled)).toEqual([]);
+  });
+
+  it("the real server.json sets a task-first title within the cap", () => {
+    expect(typeof REAL_SERVER.title).toBe("string");
+    expect((REAL_SERVER.title as string).length).toBeLessThanOrEqual(100);
+    expect(REAL_SERVER.title).toMatch(/^Verify /);
   });
 });

@@ -7,6 +7,11 @@
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import {
+  decodeCborDeterministic,
+  encodeCborDeterministic,
+  encodeCoseSign1Raw,
+} from "@forestrie/encoding";
 import { verifyGrantReceipt, VERIFIER } from "../../src/core/index.js";
 import {
   BURIAL_MANIFEST,
@@ -135,8 +140,7 @@ describe("verifyGrantReceipt — the frozen receipt against the frozen genesis",
 describe("verifyGrantReceipt — input validation is ours, not the reference's", () => {
   /**
    * forestrie-cli crashes with an uncaught stack trace when the committed
-   * grant is missing, even under --json (plan-2609-02 "What changed on
-   * contact" 3). This layer validates its own inputs and returns a clean
+   * grant is missing, even under --json. This layer validates its own inputs and returns a clean
    * structured failure instead.
    */
   it("a committed grant that is neither COSE nor raw payload is a clean parse failure", async () => {
@@ -154,6 +158,148 @@ describe("verifyGrantReceipt — input validation is ours, not the reference's",
     expect(result.questions["split-view"].status).toBe(
       "not_answered_by_this_root",
     );
+  });
+
+  /**
+   * FOR-580: grant wire v0 keys 7 (`signer`) and 8 (`kind`) were retired
+   * before canopy admission started rejecting them, and the reference
+   * codecs (`@forestrie/encoding`, and as of `@forestrie/receipt-verify`
+   * 2.1.0 the COSE-embedded grant codec too) now refuse to decode either
+   * one rather than silently ignoring it. A committed grant that still
+   * carries one must fail here, not verify against stale wire shape.
+   */
+  it("a committed grant carrying the retired key 7 (signer) is rejected, not silently accepted", async () => {
+    const c = clean();
+    const decoded = decodeCborDeterministic(c.committedGrant) as Map<
+      number,
+      unknown
+    >;
+    const withRetiredKey = new Map(decoded);
+    withRetiredKey.set(7, new Uint8Array(33).fill(0x11));
+    const committedGrant = new Uint8Array(
+      encodeCborDeterministic(withRetiredKey),
+    );
+
+    const result = await verifyGrantReceipt({
+      receipt: c.receipt,
+      committedGrant,
+      entryId: c.entryId,
+      trust: { root: "genesis", genesis: GENESIS },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.stage).toBe("parse");
+    expect(result.reason).toMatch(/keys 7 \(signer\) and 8 \(kind\)/);
+  });
+
+  it("a committed grant carrying the retired key 8 (kind) is rejected the same way", async () => {
+    const c = clean();
+    const decoded = decodeCborDeterministic(c.committedGrant) as Map<
+      number,
+      unknown
+    >;
+    const withRetiredKey = new Map(decoded);
+    withRetiredKey.set(8, 1);
+    const committedGrant = new Uint8Array(
+      encodeCborDeterministic(withRetiredKey),
+    );
+
+    const result = await verifyGrantReceipt({
+      receipt: c.receipt,
+      committedGrant,
+      entryId: c.entryId,
+      trust: { root: "genesis", genesis: GENESIS },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.stage).toBe("parse");
+    expect(result.reason).toMatch(/keys 7 \(signer\) and 8 \(kind\)/);
+  });
+
+  /**
+   * FOR-580, pinning the COSE path specifically: mcp-verify#27's two tests
+   * above only ever exercise the raw-payload retry, because
+   * `decodeCommittedGrant` used to swallow ANY `decodeForestrieGrantCose`
+   * failure and retry the same bytes as raw payload CBOR — which for a
+   * Sign1 four-tuple always failed with "must be a CBOR map", a message
+   * that names neither key. Built by decoding the golden committed grant,
+   * injecting the retired key into the embedded grant map, and wrapping it
+   * in the same Forestrie-Grant COSE Sign1 four-tuple
+   * `decodeForestrieGrantCose` reads: `[protected, unprotected, payload,
+   * signature]`, unprotected header label -65538 holding the embedded grant
+   * CBOR, payload the digest of it (`decode-forestrie-grant-cose.js` reads:
+   * no signature check happens anywhere in that decode — it is pure
+   * structure and a digest equality — so a signature need not verify, and
+   * empty bytes stand in for both the protected header and the signature).
+   */
+  async function coseWrapCommittedGrant(
+    mutate: (m: Map<number, unknown>) => void,
+  ): Promise<Uint8Array> {
+    const c = clean();
+    const decoded = decodeCborDeterministic(c.committedGrant) as Map<
+      number,
+      unknown
+    >;
+    const withRetiredKey = new Map(decoded);
+    mutate(withRetiredKey);
+    const embedded = new Uint8Array(encodeCborDeterministic(withRetiredKey));
+    const payload = new Uint8Array(
+      await crypto.subtle.digest("SHA-256", embedded),
+    );
+    // HEADER_FORESTRIE_GRANT_V0 = -65538 (receipt-verify's
+    // forest-genesis-labels.ts); not re-exported from the package's public
+    // entry point, so pinned here by value.
+    const unprotected = new Map<number, unknown>([[-65538, embedded]]);
+    return encodeCoseSign1Raw(
+      new Uint8Array(0),
+      unprotected,
+      payload,
+      new Uint8Array(0),
+    );
+  }
+
+  it("a COSE-wrapped committed grant carrying the retired key 7 (signer) fails on the COSE path", async () => {
+    const c = clean();
+    const committedGrant = await coseWrapCommittedGrant((m) =>
+      m.set(7, new Uint8Array(33).fill(0x11)),
+    );
+
+    const result = await verifyGrantReceipt({
+      receipt: c.receipt,
+      committedGrant,
+      entryId: c.entryId,
+      trust: { root: "genesis", genesis: GENESIS },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.stage).toBe("parse");
+    // The raw-payload retry's message reads "neither a Forestrie-Grant COSE
+    // Sign1 nor a raw grant payload"; this one names the COSE codec
+    // directly, proving `decodeCommittedGrant` did not swallow the COSE
+    // failure and retry these bytes as raw payload CBOR.
+    expect(result.reason).toMatch(
+      /^committedGrant is a Forestrie-Grant COSE Sign1 but failed to decode:/,
+    );
+    expect(result.reason).toMatch(/keys 7 \(signer\) and 8 \(kind\)/);
+  });
+
+  it("a COSE-wrapped committed grant carrying the retired key 8 (kind) fails on the COSE path", async () => {
+    const c = clean();
+    const committedGrant = await coseWrapCommittedGrant((m) => m.set(8, 1));
+
+    const result = await verifyGrantReceipt({
+      receipt: c.receipt,
+      committedGrant,
+      entryId: c.entryId,
+      trust: { root: "genesis", genesis: GENESIS },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.stage).toBe("parse");
+    expect(result.reason).toMatch(
+      /^committedGrant is a Forestrie-Grant COSE Sign1 but failed to decode:/,
+    );
+    expect(result.reason).toMatch(/keys 7 \(signer\) and 8 \(kind\)/);
   });
 
   it("a raw grant payload with no entryId is a clean parse failure naming the remedy", async () => {

@@ -1,6 +1,6 @@
 /**
- * Loading the frozen self-registration bundle, `test/fixtures/self-bundle/`
- * (plan-2609-02 steps 2.4/2.5). A REAL bundle, captured once against lane A
+ * Loading the frozen self-registration bundle, `test/fixtures/self-bundle/`.
+ * A REAL bundle, captured once against lane A
  * and frozen — read `test/fixtures/self-bundle/PROVENANCE.md` before
  * touching anything here. Tamper variants are generated in-test from these
  * bytes, never committed, exactly the `test/core/tamper.ts` pattern.

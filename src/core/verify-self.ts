@@ -1,5 +1,5 @@
 /**
- * `verify_self` / `verify --self` (plan-2609-02 step 2.4): does THIS
+ * `verify_self` / `verify --self`: does THIS
  * package's own release-time self-registration receipt actually vouch for
  * the bytes it ships?
  *
@@ -14,7 +14,7 @@
  *
  * 1. The receipt's leaf commits to the SIGNED STATEMENT BYTES
  *    (`statement.cose`), not to the raw `provenance.json` — verified at
- *    capture with the reference CLI (see the frozen bundle's PROVENANCE.md):
+ *    capture with the `forestrie` CLI (see the frozen bundle's PROVENANCE.md):
  *    `--payload statement.cose` PASSES, `--payload provenance.json` reports
  *    `signature_invalid` (the familiar detached-payload-shaped collapse,
  *    except here it is the WRONG PAYLOAD, not a detached one). So step (a)
@@ -73,7 +73,7 @@ export type SelfProvenance = {
 };
 
 /**
- * D3's result, extended with what `verify_self` alone checks: whether
+ * The verify result, extended with what `verify_self` alone checks: whether
  * `statement.cose` actually signs the `provenance.json` bytes supplied, and
  * whether that signature holds under the bundled log key. Everything else
  * (`stages`, `questions`, `diagnostics`, `root`) is the same result shape
@@ -275,6 +275,8 @@ export async function verifySelf(
   };
   if (reason !== undefined) out.reason = reason;
   if (base.anchor !== undefined) out.anchor = base.anchor;
+  if (base.detail !== undefined) out.detail = base.detail;
+  if (base.failedLink !== undefined) out.failedLink = base.failedLink;
   return out;
 }
 

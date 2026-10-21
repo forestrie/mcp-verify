@@ -1,7 +1,7 @@
 /**
- * Browser-safety guard (plan-2609-02 D2(a); copied from
+ * Browser-safety guard (copied from
  * canopy/packages/libs/receipt-verify/tools/check-browser-safe.mjs, itself
- * written for ADR-0048 / plan-2607-13 W4/C8): bundle the package entry for the
+ * written for ADR-0048): bundle the package entry for the
  * browser platform and fail if any node builtin is in the module graph.
  *
  * What this copy proves that the upstream one does not: not only that
@@ -18,7 +18,7 @@
  * If this gate ever goes red without `src/core` changing, look in
  * @forestrie/merklelog first: it holds the one `node:crypto` reference in the
  * graph, hidden behind an opaque string specifier so bundlers cannot resolve
- * it (plan-2609-02 "State verified at runtime", row 3). Our gate inherits
+ * it. Our gate inherits
  * that property. A merklelog release that makes the specifier resolvable
  * turns this red for a reason that lives in someone else's repo.
  */

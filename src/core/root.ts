@@ -1,5 +1,5 @@
 /**
- * D2: the trust root is an INPUT UNION, mirroring the reference CLI's flag
+ * The trust root is an INPUT UNION, mirroring the `forestrie` CLI's flag
  * presence (`forestrie-cli/src/options/verify.ts` selects the same four by
  * flag; the roots are not ordered by strength — there are two families,
  * signature roots and accumulator roots). You do not ask for "verification";
@@ -28,8 +28,19 @@ export type TrustRoot =
        * the caller's key provenance, not proven.
        */
       root: "known-log-key";
-      /** Raw 64-byte P-256 x‖y. */
-      keyXy: Uint8Array;
+      /** Raw 64-byte P-256 x‖y. Exactly one of `keyXy` / `ks256Address`. */
+      keyXy?: Uint8Array;
+      /**
+       * 20-byte KS256 (secp256k1/keccak) address. Asserts, does not prove,
+       * that the address owns the log. A contract (Safe) address needs an
+       * ERC-1271 attestation to verify offline.
+       */
+      ks256Address?: Uint8Array;
+      /**
+       * A forest genesis document, read ONLY for the chain id a
+       * `ks256Attestation` must match. It supplies no trust keys.
+       */
+      forestGenesis?: Uint8Array;
     }
   | {
       /**
@@ -71,7 +82,7 @@ export const ROOT_NAMES = [
 
 /**
  * The roots that carry an independent accumulator, and therefore the roots at
- * which split-view is answerable at all. This single predicate is the D3
+ * which split-view is answerable at all. This single predicate is the root
  * table's load-bearing distinction; `questions.ts` and `verify-*.ts` both read
  * it rather than re-deriving it.
  */

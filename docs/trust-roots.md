@@ -11,26 +11,26 @@ rest on a key and check the receipt's signature locally. Two are
 control, match the peak against it, and evaluate no signature at all. A
 receipt that verifies under one and not the other is not a contradiction;
 they ask different questions. Which root is right depends on what you hold
-and what you need to know. The reference CLI selects the root by flag.
+and what you need to know. The `forestrie` CLI selects the root by flag.
 
 Everything below is reproducible from the bundled fixtures with
 `npx @forestrie/mcp-verify demo` and asserted by
 `test/core/root-table.test.ts`. Background on what transparency is and what a
 receipt contains: [TRANSPARENCY.md](../TRANSPARENCY.md).
 
-| Root                | What you supply                                                              | What the verdict rests on                                                                                |
-| ------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `genesis`           | the forest's genesis document, captured when you registered                  | the bootstrap key in genesis, with the receipt's delegation certificate resolved under it                |
-| `known-log-key`     | a log owner key you hold out of band                                         | your channel for that key: "this key owns this log" is asserted by where you got it, not proven          |
-| `known-accumulator` | a snapshot of the log's peaks at a size, from a chain read                   | the univocity contract, which refuses to publish a checkpoint whose signature or consistency proof fails |
-| `checkpoint-chain`  | a retained chain of `.sth` checkpoints, plus `genesis` or a key for its base | your own retention: each link's signature is checked over the accumulator folded from the previous link  |
+| Root                | What you supply                                                                                 | What the verdict rests on                                                                                |
+| ------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `genesis`           | the forest's genesis document, captured when you registered                                     | the bootstrap key in genesis, with the receipt's delegation certificate resolved under it                |
+| `known-log-key`     | a log owner key (`keyXy`, 64-byte P-256) or KS256 address (`ks256Address`) you hold out of band | your channel for that key: "this key owns this log" is asserted by where you got it, not proven          |
+| `known-accumulator` | a snapshot of the log's peaks at a size, from a chain read                                      | the univocity contract, which refuses to publish a checkpoint whose signature or consistency proof fails |
+| `checkpoint-chain`  | a retained chain of `.sth` checkpoints, plus `genesis` or a key for its base                    | your own retention: each link's signature is checked over the accumulator folded from the previous link  |
 
 ### When each root is the effective choice
 
 - **`genesis`** when the genesis document is all you have. It is
   self-contained. It roots receipts from the root log or a direct delegate;
   the offline walk that would root a deeper child log is not implemented,
-  here or in the reference CLI. Its trust value depends on when you obtained
+  here or in the `forestrie` CLI. Its trust value depends on when you obtained
   it: see [The genesis document](#the-genesis-document).
 - **`known-log-key`** when the log owner's key reached you through a channel
   you already trust: a contract, an onboarding document, a pinned known-hosts
@@ -44,13 +44,69 @@ receipt contains: [TRANSPARENCY.md](../TRANSPARENCY.md).
   receipt newer than the snapshot fails closed with a refresh remedy, not as
   tamper. Never source the snapshot from the operator's own store, and check
   its log id and contract binding yourself, because this package does not.
+  The peak is always recomputed from the leaf and inclusion path: since 0.7.0
+  (`@forestrie/receipt-verify` 3.2.0) a peak attached to the receipt is
+  checked against that recomputation instead of being trusted. Before, a
+  receipt attaching a genuinely anchored peak but carrying the wrong payload
+  passed this root (and `checkpoint-chain`, which inherited it); upgrade if
+  you relied on either for a receipt whose COSE payload is attached.
 - **`checkpoint-chain`** when you hold the checkpoints and have neither chain
   nor tile access, or when log growth has buried the receipt's peak. Each
   later link's signed consistency proof commits the earlier accumulator
   forward, so a match at any link is proof. This is the only fully offline
-  route for a buried receipt. A log whose early checkpoints predate
-  contiguous chaining reports `legacy_chain_break`; that is a property of the
-  log, not tamper.
+  route for a buried receipt. Every checkpoint carries its sealed tree size
+  under the signature (ADR-0066, `@forestrie/receipt-verify` 2.0.0); a link
+  without it, or whose declared origin does not continue the previous
+  link's sealed size, fails `size_mismatch`, and there is no legacy path
+  for checkpoints sealed before the label existed.
+
+### Delegation limits under `checkpoint-chain`
+
+A delegation certificate authorises its key only for checkpoints whose
+`size - 1` lies in `[mmrStart, mmrEnd]` and until `expiresAt`. Each chain
+link is judged against its own signed tree size (label -65933), after its
+certificate resolves and before its signature is accepted:
+
+- **`delegation_out_of_range`**: `signedSize - 1 > mmrEnd` or
+  `signedSize - 1 < mmrStart`. Exact on both sides; it is the bound the
+  on-chain `delegationVerifier` applies, so the chain rejects what the
+  contract would have refused to publish. (Since 0.7.0 the lower bound is
+  enforced too; 0.6.1 enforced `mmrEnd` only.)
+- **`delegation_expired`**: the link's signed size covers the receipt's leaf
+  (`signedSize > leaf mmrIndex`) and the leaf's time (from its idtimestamp,
+  never wall-clock) is later than `expiresAt`. A covering checkpoint is signed
+  after the leaf was sequenced, so this proves signing past the key's
+  lifetime. A link that does not cover the leaf says nothing about the leaf's
+  time and is held only to the size bound.
+
+The `issuedAt` lower bound is not enforced, for a reason: a cert is
+legitimately signed a few seconds after the leaf it covers, so
+`issuedAt > leafTime` is normal. (`mmrStart` is judged per link, on the
+signed size, not on the receipt's leaf: a leaf below `mmrStart` can
+legitimately sit in a checkpoint above it.)
+
+A certificate without all of labels 3, 4, 8 and 9 carries no checkable
+limits and is not checked, as in receipt-verify.
+
+Ordering: the size bound needs only signed data, so it is judged while the
+chain folds. Expiry needs the receipt's leaf, so it is judged only AFTER the
+receipt's peak has matched the chain (the leaf hash binds the idtimestamp and
+the inclusion path binds the mmrIndex), over every link whose signed size
+covers the leaf. A wrong or forged `entryId` therefore reports
+`peak_not_in_checkpoint_chain`, never a delegation violation.
+
+The chain is verified by `@forestrie/receipt-verify`'s shared
+checkpoint-chain verifier (`verifyReceiptAgainstCheckpointChain`, since
+0.7.0; this package no longer carries its own copy), and its typed outcome is
+the result. A violation reports the typed `reason` (`delegation_out_of_range`,
+`delegation_expired`, or a `ks256_*` reason) at `stage=signature`, with
+`failedLink` naming the link and `detail` saying so in words, plus a
+`delegation_limit_violation` diagnostic (KS256 reasons raise
+`ks256_root_failure`); the `sealing` answer says the checkpoint's delegation
+failed. A missing trust root or a forest genesis without a chain binding is an
+input error (`stage=parse`). The peak is always recomputed from the leaf and
+inclusion path, never read from the receipt, so a receipt that attaches a
+peak cannot vouch for itself.
 
 ### The genesis document
 
@@ -77,7 +133,7 @@ obtained your copy decides what verifying under it proves.
   the receipt is consistent with a document the operator chose to serve you
   today, and nothing more. An operator minting a fresh key and genesis for
   your session would pass identically. This is `known-log-key` with the key
-  fetched from the operator, which is exactly what the reference CLI says
+  fetched from the operator, which is exactly what the `forestrie` CLI says
   never to do.
 
 If you did not keep a copy, obtain one from somewhere other than the
@@ -85,15 +141,116 @@ operator's store, or cross-check its bootstrap key against a source you
 trust independently. Or use an accumulator root, which does not depend on
 the genesis document at all.
 
+### KS256 roots and ERC-1271 attestations
+
+A forest's root can be a secp256k1 (KS256) address instead of a P-256 key.
+Receipts are still ES256, signed by a sealer's delegated key; what changes is
+how the label-1000 delegation certificate is checked against the root.
+
+- **EOA root.** Verified by ecrecover, offline, with the same guarantee as an
+  ES256 root. Works from the `genesis` root (the bootstrap key in genesis may
+  be a KS256 address) and from `known-log-key` with `ks256Address`
+  (`0x` plus 40 hex). `known-log-key` takes exactly one of `keyXy` or
+  `ks256Address`.
+- **Contract root (Safe).** ecrecover cannot match a contract, so without
+  more the result is `ks256_root_not_recovered`. Supply `ks256Attestation`:
+  the ERC-1271 record that the contract answered `isValidSignature` with the
+  magic value for this exact certificate digest at a given block. It is a
+  chain read someone else made, written down so it can be re-run at that
+  block; this package never calls the chain. Fetch it with
+  `@forestrie/mcp-resolve`'s `fetch_ks256_attestation` tool or
+  `forestrie-cli`'s `fetch-ks256-attestation`.
+  The verdict is then **valid under the contract's signers at the attested
+  block** and not a statement about the contract's current owners. The result
+  carries a `ks256Attestation` block (chain id, block number and hash,
+  address) so a caller sees the narrower guarantee; with several
+  attestations it names the first that carried the run, and
+  `ks256Attestations.used` lists every one. An attested
+  block is reported only when its attestation was needed: the verify is
+  re-run without it, and if it still passes (an EOA root, by ecrecover) no
+  block is reported and a `ks256_attestation_not_consulted` diagnostic says
+  the attestation was not used. With an ES256 root the same diagnostic says the attestation does not apply (the root is an ES256 key), not that ecrecover ran. When an attestation was needed, the `sealing` answer states the narrower guarantee (block, chain, and that you trust whoever fetched the attestation). `forestGenesis`, like the key, is caller-asserted, and must decode as a forest genesis with a chain binding or the call is an input error.
+- **Chain binding.** An attestation is accepted only when its chain id equals
+  the forest's genesis chain: the same Safe address on another chain can have
+  other owners. With `genesis` the chain comes from that document. With
+  `known-log-key` supply `forestGenesis` (same encoding as the genesis
+  root's `genesis`), which is read **only** for that chain id and supplies no
+  trust keys; without it the result is `ks256_attestation_chain_unbound`.
+- **Asserted, not proven.** A bare `ks256Address` is the standard known-key
+  posture: you assert it owns the log. Nothing here shows that it does.
+- **Where it applies.** `ks256Attestation` works under `genesis`,
+  `known-log-key` and `checkpoint-chain`. Under `known-accumulator` there is
+  no root-versus-certificate step for it to serve, so the combination is
+  rejected as an input error rather than ignored. `checkpoint-chain`
+  accepts a KS256 `genesis` root (an EOA by ecrecover, a Safe with the
+  attestation); its `keyXy` stays ES256.
+- **Several attestations.** A Safe that rotated its delegate signs one
+  certificate per delegate, and each certificate needs its own attestation.
+  Supply them as the `ks256Attestations` array (the singular
+  `ks256Attestation` keeps working; if both are given they are combined,
+  singular first). Every attestation is tried for each
+  certificate and the first that resolves wins; nothing makes an attestation
+  acceptable on its own (address, digest, signature hash, forest chain id and
+  magic are still checked). Every supplied attestation is accounted for in
+  `ks256Attestations`: `used` (with the block it speaks for, and under
+  `checkpoint-chain` the `links` it carried) or `unused` with a reason:
+  `not_needed` (its certificate verified without it), `no_matching_certificate`
+  (no verified certificate has its digest and signature hash), `duplicate`
+  (another attestation for the same certificate was tried first). `rejected`
+  lists attestations made for a certificate (digest and signature hash match)
+  but refused there (wrong address, chain or magic), with the `links` under
+  `checkpoint-chain`; an attestation can be
+  both used and rejected. An unused attestation on a passing run raises
+  `ks256_attestation_not_consulted`; it is never silently ignored. Indexes are
+  positions in the supplied list, singular first.
+- **Under `checkpoint-chain`.** The attestations are offered to every link's
+  delegation certificate, and the forest chain id is read from the
+  supplied `genesis` (an attestation with no `genesis`, or a genesis without
+  a chain binding, is an input error: a bare `keyXy` carries no chain).
+  One attestation binds ONE certificate digest and signature, so a chain
+  whose links were signed under different certificates (a delegation rotated
+  mid-chain) needs one attestation per certificate; with one missing the
+  chain fails closed at the first link it does not cover (`failedLink`), with
+  the precise `ks256_attestation_*` reason. The attested blocks are reported
+  for the links that verified only because of an attestation (each link is
+  re-resolved without it, purely and offline). The verdict's `sealing` answer
+  carries the same narrower attested-block wording as at the other roots,
+  naming every block.
+
+Failure reasons, each named in the result's `diagnostics`:
+`ks256_root_not_recovered`, `delegation_not_ks256`,
+`ks256_root_requires_delegation`, `ks256_attestation_address_mismatch`,
+`ks256_attestation_digest_mismatch`, `ks256_attestation_signature_mismatch`,
+`ks256_attestation_chain_mismatch`, `ks256_attestation_magic_invalid`,
+`ks256_attestation_chain_unbound`.
+
 A call takes one root. `checkpoint-chain` also accepts both `genesis` and
 `keyXy`, and tries both for each link. To have both a local signature check
 and a split-view answer, run the same bytes against two roots; the arithmetic
 does not change between them.
 
-The `rpc` mode the reference CLI offers — the only one that touches the
+The `rpc` mode the `forestrie` CLI offers — the only one that touches the
 network — is excluded from this package **by construction**. There is no
 branch for it, and a CI gate bundles the core for `platform: "browser"` and
 fails on any edge to a node builtin, let alone a socket.
+
+## 0.7.0 changes
+
+Upgrading from 0.6.x, with `@forestrie/receipt-verify` 3.2.0:
+
+- **Security fix.** A peak attached to a receipt is now checked against the
+  peak recomputed from leaf and inclusion path, not trusted. In 0.6.x a
+  receipt attaching a genuinely anchored peak but carrying the wrong payload
+  passed the `known-accumulator` and `checkpoint-chain` roots. Accumulator
+  peaks are also matched by position, not just value.
+- **`checkpoint-chain` failures changed shape.** They are now `stage=signature`
+  (`parse` for a bad input or unreadable receipt) with the typed `reason`
+  (`delegation_out_of_range`, `delegation_expired`, `ks256_*`, ...) plus
+  `failedLink` and `detail`. In 0.6.x they were `stage=parse` with a reason
+  ending `[delegation: X]`. `mmrStart` is now enforced.
+- **Attestations.** `ks256Attestations` (array) joins `ks256Attestation`, and
+  the result's `ks256Attestations` reports `{used, rejected, unused}` for every
+  one supplied.
 
 ## The four questions
 
@@ -175,8 +332,8 @@ from a bad signature when a signature root cannot.
 — `stage: "signature"`, although no signature was evaluated. Same for
 `receipt_newer_than_known_accumulator`. That is upstream's label
 (`@forestrie/receipt-verify@1.0.0`, `known-accumulator.ts`), and this package
-passes `stage`/`reason` through **verbatim** so `stages[]` stays comparable
-with the reference CLI's contract.
+passes `stage`/`reason` through **verbatim** so `stages[]` keeps the
+`forestrie` CLI's contract.
 
 The separation is real; it just lives in `reason` and in
 `questions["split-view"]` rather than in the stage name. The
@@ -190,8 +347,7 @@ finding.
 **first** and checks the anchor only if that passed, so its stage collapse
 survives into the accumulator check. Here the accumulator is the sole
 authority and no signature is evaluated. That is what produces the
-separation, and it is why the two accumulator roots are outside the
-differential matrix: see [differential-test.md](differential-test.md).
+separation.
 
 A planned CLI change lets `--known-accumulator` stand alone the same way,
 closing this gap; until it ships, the two implementations disagree here by
@@ -200,10 +356,9 @@ design, not by accident.
 ## The stages, and why they are also reported
 
 `stages[]` is the mechanical pipeline — `parse`, `signature`, `inclusion`,
-`binding`, each `ok | failed | skipped` — and it is exactly the reference
-CLI's `VerifyReport` contract, which its own CI asserts. It is reported
-unmodified so `test/differential/` can compare the two implementations field
-for field. The four questions are what that verdict is _evidence for_; the
+`binding`, each `ok | failed | skipped` — and it is exactly the `forestrie`
+CLI's `VerifyReport` contract, which that CLI's own CI asserts, reported
+unmodified. The four questions are what that verdict is _evidence for_; the
 stages are what actually ran. Both, always.
 
 ## The demo

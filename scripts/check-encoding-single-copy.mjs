@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * D2(c): exactly one @forestrie/encoding in the tree.
+ * Exactly one @forestrie/encoding in the tree.
  *
- * Three copies (0.7.0 / 0.6.0 / 0.5.0) coexist in a fresh install of the
- * @forestrie estate (plan-2609-02, "Encoding skew is worse than the handoff
- * said"). Two copies of a WIRE-TYPE package means two CBOR codecs, and a
+ * Three copies (0.7.0 / 0.6.0 / 0.5.0) have coexisted in a fresh install of
+ * the @forestrie estate. Two copies of a WIRE-TYPE package means two CBOR
+ * codecs, and a
  * verifier that disagrees with itself about the bytes is not a verifier.
  * This is a release gate, not a lint.
  *
@@ -19,8 +19,8 @@
  * DO NOT "fix" a red run here with a pnpm `overrides` entry. An override
  * SILENCES the exact skew this gate exists to detect, by rewriting a
  * transitive dep to a version its parent was never tested against. Today the
- * pin is naturally satisfiable — receipt-verify@1.0.0 depends on
- * @forestrie/encoding@0.7.0 exactly, and we declare 0.7.0 exactly, so there
+ * pin is naturally satisfiable — receipt-verify@3.2.0 depends on
+ * @forestrie/encoding@0.9.1 exactly, and we declare 0.9.1 exactly, so there
  * is exactly one copy without any coercion. If a future dependency drags a
  * second copy in, fix or drop that dependency (or wait for its bump), never
  * override.
@@ -31,7 +31,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 const root = process.argv[2] ?? process.cwd();
-const EXPECTED = "0.7.0"; // D2: exact pin
+const EXPECTED = "0.9.1"; // exact pin
 const MAX_DEPTH = 12;
 
 /** version -> [realpath-ish paths] */

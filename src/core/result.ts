@@ -1,11 +1,11 @@
 /**
- * D3: the result carries BOTH enumerations, because they are different
+ * The result carries BOTH enumerations, because they are different
  * things.
  *
  * 1. `stages[]` — the mechanical stages the arithmetic actually ran, exactly
- *    the reference CLI's `VerifyReport` contract. This is the differential
- *    test's target and it is not ours to reinterpret.
- * 2. `questions` — rule P3's four trust questions, which are the product's
+ *    the `forestrie` CLI's `VerifyReport` contract, and not ours to
+ *    reinterpret.
+ * 2. `questions` — the trust model's four questions, which are the product's
  *    answers. Each is `ok | failed | not_answered_by_this_root`.
  *
  * The second exists because the first is not enough. A bare "valid" is the
@@ -27,7 +27,7 @@ export type StageRow = {
   reason?: string;
 };
 
-/** P3's four trust questions — the product's answers. */
+/** The trust model's four questions — the product's answers. */
 export type QuestionName =
   "split-view" | "sealing" | "append-authority" | "attribution";
 
@@ -51,7 +51,7 @@ export const QUESTION_NAMES = [
  */
 export type DiagnosticCode =
   /** Detached payload + no independent accumulator: a bad proof and a bad
-   *  signature are the same observation. Plan-2609-02 D3, the collapse. */
+   *  signature are the same observation: the stage collapse. */
   | "detached_payload_stage_collapse"
   /** This root has no independent accumulator, so split-view is unanswered. */
   | "root_answers_no_split_view"
@@ -59,7 +59,8 @@ export type DiagnosticCode =
   | "grant_authority_not_checked_for_payload_receipt"
   /** Upstream labels a peak/staleness failure at the accumulator root as
    *  stage=signature although no signature was evaluated. Passed through
-   *  verbatim for differential fidelity; named here so nobody misreads it. */
+   *  verbatim to keep the CLI's stage contract; named here so nobody
+   *  misreads it. */
   | "accumulator_failure_reported_at_signature_stage"
   /** verify_self / verify --self only. The publications log this package
    *  registers into is a grandchild of the forest root (root → auth log →
@@ -67,7 +68,17 @@ export type DiagnosticCode =
    *  forestrie-cli nor @forestrie/receipt-verify walks it down to a child log
    *  yet (docs/self-registration.md "The grant chain: recorded, not walked").
    *  Emitted at known-log-key and genesis, the two roots this affects. */
-  | "self_chain_not_walked";
+  | "self_chain_not_walked"
+  /** The run failed with a ks256_* / delegation_not_ks256 reason: the KS256
+   *  root could not be tied to the delegation certificate. */
+  | "ks256_root_failure"
+  /** A passing run that was given an ERC-1271 attestation: the guarantee is
+   *  narrower than an ES256 root's. */
+  | "ks256_attested_guarantee"
+  /** An attestation was supplied but the run passed without it (EOA root). */
+  | "ks256_attestation_not_consulted"
+  /** checkpoint-chain: a link was signed outside its delegation certificate's limits. */
+  | "delegation_limit_violation";
 
 export type Diagnostic = { code: DiagnosticCode; message: string };
 
@@ -98,9 +109,44 @@ export type AnchorReport = {
 };
 
 /**
- * The tool result. A superset of the CLI's `VerifyReport` on the four fields
- * the differential test compares (`ok`, `stage`, `reason`, `stages`);
- * `questions`, `diagnostics` and `verifier` are ours alone.
+ * Provenance of an ERC-1271 attestation the run actually NEEDED: present only
+ * when the run passed with the attestation and would not have passed without
+ * it (a contract root). If the root verified by ecrecover the block is
+ * omitted and a `ks256_attestation_not_consulted` diagnostic is emitted
+ * instead. All values are strings (chain id and block are decimal).
+ */
+export type Ks256AttestationReport = {
+  chainId: string;
+  blockNumber: string;
+  blockHash: string;
+  address: string;
+};
+
+/**
+ * Every supplied attestation, accounted for (nothing is silently ignored).
+ * `used` ones carried the run: they are the only ones whose block the verdict
+ * is valid at. `unused` ones say why: `not_needed` (the certificate verified
+ * without it), `no_matching_certificate` (no verified certificate has its
+ * digest and signature hash), `duplicate` (another attestation for the same
+ * certificate was tried first). `rejected` ones were tried
+ * for a link's certificate and refused there. `links` (checkpoint-chain) are
+ * the indexes of the links it carried or was refused at.
+ */
+export type Ks256AttestationsReport = {
+  used: (Ks256AttestationReport & {
+    index: number;
+    digest: string;
+    links?: number[];
+  })[];
+  /** Tried for a link's certificate and refused there (wrong address, chain, magic). */
+  rejected: { index: number; digest: string; links: number[] }[];
+  unused: { index: number; digest: string; reason: string }[];
+};
+
+/**
+ * The tool result. A superset of the CLI's `VerifyReport`, whose fields are
+ * `ok`, `stage`, `reason` and `stages`; `questions`, `diagnostics` and
+ * `verifier` are ours alone.
  */
 export type VerifyResult = {
   ok: boolean;
@@ -109,6 +155,14 @@ export type VerifyResult = {
   reason?: string;
   stages: StageRow[];
   anchor?: AnchorReport;
+  /** Human detail of a checkpoint-chain failure (which link, and why). */
+  detail?: string;
+  /** checkpoint-chain: the index of the link a failure names. */
+  failedLink?: number;
+  /** The first attestation that carried the run; see {@link Ks256AttestationReport}. */
+  ks256Attestation?: Ks256AttestationReport;
+  /** All supplied attestations, used and unused; see {@link Ks256AttestationsReport}. */
+  ks256Attestations?: Ks256AttestationsReport;
   questions: TrustQuestions;
   diagnostics: Diagnostic[];
   verifier: VerifierIdentity;

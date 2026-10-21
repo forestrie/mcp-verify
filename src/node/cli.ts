@@ -2,11 +2,12 @@
  * The bin entry, reached via `bin/mcp-verify.mjs`.
  *
  *   <no args>          → StdioServerTransport; this is what
- *                        `npx -y @forestrie/mcp-verify` does (D6).
+ *                        `npx -y @forestrie/mcp-verify` does.
  *   demo               → run two trust roots over the bundled fixtures.
  *   verify --self      → verify this package's own release-time
  *                        self-registration receipt against the bundled log
- *                        owner key (plan-2609-02 step 2.5). Exit 2, not 1,
+ *                        owner key, or under `--root genesis` to see the
+ *                        documented delegation_invalid. Exit 2, not 1,
  *                        when `fixtures/self/` is absent — the normal state
  *                        for a checkout that is not itself the published
  *                        tarball, not a verification failure.
@@ -31,10 +32,23 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { PACKAGE_VERSION, RECEIPT_VERIFY_VERSION } from "../core/index.js";
 import { runDemo } from "./demo.js";
-import { runVerifySelf } from "./self-cli.js";
+import { parseSelfRootFlag, runVerifySelf } from "./self-cli.js";
+import { TOOL_NAMES, type ToolName } from "./tools.js";
 import { createServer } from "./server.js";
 
-const HELP = `forestrie-mcp-verify ${PACKAGE_VERSION}
+/** One line per tool in `--help`, generated from the list the server
+ *  registers from so the two cannot drift; the summaries are this file's. */
+const TOOL_SUMMARIES: Record<ToolName, string> = {
+  verify_receipt: "payload receipt + exact payload + entry id + trust root",
+  verify_grant_receipt: "grant receipt + committed grant + trust root",
+  verify_self: "this package's own release-time self-registration",
+  decode_receipt: "CBOR to JSON. No verification.",
+};
+const TOOLS_BLOCK = TOOL_NAMES.map(
+  (name) => `  ${name.padEnd(22)} ${TOOL_SUMMARIES[name]}`,
+).join("\n");
+
+export const HELP = `forestrie-mcp-verify ${PACKAGE_VERSION}
 
   MCP verification server for Forestrie receipts.
   Offline: no backend, no account, no key, no network.
@@ -44,14 +58,13 @@ USAGE
   forestrie-mcp-verify demo           run two trust roots over the bundled fixtures
   forestrie-mcp-verify verify --self  verify this package's own release
                                        registration against the bundled log key
+      [--root known-log-key|genesis]   (genesis reports delegation_invalid:
+                                       docs/self-registration.md)
   forestrie-mcp-verify --help
   forestrie-mcp-verify --version
 
 TOOLS
-  verify_receipt         payload receipt + exact payload + entry id + trust root
-  verify_grant_receipt   grant receipt + committed grant + trust root
-  verify_self            this package's own release-time self-registration
-  decode_receipt         CBOR to JSON. No verification.
+${TOOLS_BLOCK}
 
 TRUST ROOTS (the "root" field)
   genesis             the log's genesis document
@@ -97,7 +110,15 @@ export async function main(argv: readonly string[]): Promise<number> {
 
   if (verb === "verify") {
     if (args.includes("--self")) {
-      return runVerifySelf(out);
+      const flag = parseSelfRootFlag(args);
+      if (!flag.ok) {
+        process.stderr.write(`${flag.message}\n`);
+        return 1;
+      }
+      return runVerifySelf(
+        out,
+        flag.root !== undefined ? { root: flag.root } : {},
+      );
     }
     process.stderr.write(
       "forestrie-mcp-verify: `verify` currently supports only --self. " +

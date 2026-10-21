@@ -8,8 +8,8 @@ release key as the publications log's owner. The publications log is
 `67876864-3b46-67ae-dcb3-13cc81624aa5`; `genesis.cbor` is that forest's
 genesis document. The registered entry is the one named in `entry-id.txt`.
 
-These bytes are FROZEN test fixtures for `verify_self` / `verify --self`
-(plan-2609-02 steps 2.4 and 2.5). `manifest.json` carries their sha256;
+These bytes are FROZEN test fixtures for `verify_self` / `verify --self`.
+`manifest.json` carries their sha256;
 `test/core/golden-pin.test.ts`-style pinning applies. Regenerate only by
 running the script again against a lane and replacing the whole directory.
 

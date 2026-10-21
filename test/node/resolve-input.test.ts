@@ -34,6 +34,24 @@ describe("resolveBytes", () => {
     expect(resolveBytes({ path: receiptPath })).toEqual(RECEIPT);
   });
 
+  it("accepts base64 as an alias of b64, decoding to the same bytes", () => {
+    expect(resolveBytes({ base64: "AQID" })).toEqual(
+      new Uint8Array([1, 2, 3]),
+    );
+    expect(resolveBytes({ base64: "AQID" })).toEqual(
+      resolveBytes({ b64: "AQID" }),
+    );
+  });
+
+  it("names the key the caller used when the alias is malformed", () => {
+    expect(() => resolveBytes({ base64: "!!!" }, "receipt")).toThrow(
+      "receipt.base64 is not valid base64",
+    );
+    expect(() => resolveBytes({ b64: "!!!" }, "receipt")).toThrow(
+      "receipt.b64 is not valid base64",
+    );
+  });
+
   it("tolerates surrounding whitespace in base64", () => {
     expect(resolveBytes({ b64: `\n  ${b64(RECEIPT)}  \n` })).toEqual(RECEIPT);
   });

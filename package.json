@@ -1,10 +1,10 @@
 {
   "name": "@forestrie/mcp-verify",
-  "version": "0.4.1",
+  "version": "0.7.0",
   "mcpName": "dev.forestrie/verify",
   "license": "MIT",
   "type": "module",
-  "description": "MCP verification server for Forestrie receipts \u2014 offline, no backend, no key, no network",
+  "description": "Verify a SCITT receipt under a trust root you hold — offline, no backend, no key, no network",
   "keywords": [
     "mcp",
     "modelcontextprotocol",
@@ -12,7 +12,13 @@
     "cose",
     "receipt",
     "transparency-log",
-    "forestrie"
+    "forestrie",
+    "verify",
+    "verification",
+    "provenance",
+    "transparency",
+    "audit-log",
+    "split-view"
   ],
   "repository": {
     "type": "git",
@@ -69,7 +75,6 @@
     "check:encoding-single-copy": "node scripts/check-encoding-single-copy.mjs",
     "check:server-json": "node scripts/assert-server-json.mjs",
     "test:unit": "vitest run --project unit",
-    "test:differential": "vitest run --project differential",
     "test": "pnpm run check:browser-safe && pnpm run check:encoding-single-copy && pnpm run check:server-json && vitest run --project unit",
     "test:watch": "vitest --project unit",
     "demo": "node ./bin/mcp-verify.mjs demo",
@@ -78,13 +83,16 @@
     "check:stdio-clean": "node scripts/check-stdio-clean.mjs"
   },
   "dependencies": {
-    "@forestrie/encoding": "0.7.0",
-    "@forestrie/merklelog": "0.3.0",
-    "@forestrie/receipt-verify": "1.1.0",
+    "@forestrie/encoding": "0.9.1",
+    "@forestrie/merklelog": "0.5.0",
+    "@forestrie/receipt-verify": "3.2.0",
     "@modelcontextprotocol/sdk": "1.30.0",
     "zod": "^4.5.4"
   },
   "devDependencies": {
+    "@forestrie/delegation-cose": "0.4.0",
+    "@noble/curves": "1.9.7",
+    "@noble/hashes": "1.8.0",
     "@types/node": "^22.14.0",
     "esbuild": "^0.25.0",
     "prettier": "^3.6.2",

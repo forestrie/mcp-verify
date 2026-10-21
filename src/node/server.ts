@@ -13,7 +13,7 @@
  * Every handler returns BOTH `structuredContent` (the full result) and a
  * one-line `content[0].text` summary. The summary is what a human reads in the
  * transcript, and it must never be a bare "valid" — it names the root and
- * which questions went unanswered (D3).
+ * which questions went unanswered.
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
@@ -32,6 +32,7 @@ import {
 import { InputError, resolveBytes, resolveRoot } from "./resolve-input.js";
 import type { BytesInput, TrustRootInput } from "./resolve-input.js";
 import {
+  TOOL_NAMES,
   decodeOutputShape,
   decodeReceiptInputShape,
   verifyGrantReceiptInputShape,
@@ -42,6 +43,11 @@ import {
 } from "./tools.js";
 import {
   BURIAL_MANIFEST,
+  LANE_A_FILES,
+  LANE_A_MANIFEST,
+  fromHex,
+  goldenCommittedGrant,
+  goldenEntryId,
   listSelfFixtures,
   loadSelfBundle,
   readFixture,
@@ -151,7 +157,16 @@ export function createServer(): McpServer {
         "bytes: no network, no account, no key, no backend. Choose a trust " +
         "root deliberately — the answer tells you which of the four trust " +
         "questions that root can answer, and 'not_answered_by_this_root' is " +
-        "a real answer that must be shown to the user.",
+        "a real answer that must be shown to the user. KS256 (secp256k1) " +
+        "roots verify offline: an EOA root by ecrecover, a contract root " +
+        "(Safe) only with a ks256Attestation — an ERC-1271 record fetched " +
+        "elsewhere (mcp-resolve's fetch_ks256_attestation, or forestrie-cli's " +
+        "fetch-ks256-attestation), never by this server. A contract root is " +
+        "then valid under the contract's signers at the attested block, a " +
+        "narrower guarantee; the result's ks256Attestation names that block. A " +
+        "Safe that rotated its delegate needs one attestation per " +
+        "certificate (ks256Attestations); every attestation is reported as " +
+        "used or unused, never silently ignored.",
     },
   );
 
@@ -162,15 +177,21 @@ export function createServer(): McpServer {
     openWorldHint: false,
   } as const;
 
+  // One registerTool per name in TOOL_NAMES, in that order; the smoke test
+  // asserts tools/list equals TOOL_NAMES and help.test.ts asserts --help
+  // prints the same list.
   server.registerTool(
-    "verify_receipt",
+    TOOL_NAMES[0],
     {
       title: "Verify a payload receipt",
       description:
         "Verify a Forestrie receipt against the EXACT registered payload " +
         "bytes and an entry id, at a trust root you choose. Mirrors " +
         "`forestrie verify`. Offline: no network, no key, no account. " +
-        "Returns both the mechanical stages and the four trust questions.",
+        "Returns both the mechanical stages and the four trust questions. " +
+        "KS256 contract roots take an optional ks256Attestation (fetched " +
+        "elsewhere; this tool never calls the chain; several go in " +
+        "ks256Attestations).",
       inputSchema: verifyReceiptInputShape,
       outputSchema: verifyOutputShape,
       annotations,
@@ -182,6 +203,21 @@ export function createServer(): McpServer {
           payload: resolveBytes(args.payload as BytesInput, "payload"),
           entryId: args.entryId,
           trust: resolveRoot(args.trust as TrustRootInput),
+          ...(args.ks256Attestation !== undefined
+            ? {
+                ks256Attestation: resolveBytes(
+                  args.ks256Attestation as BytesInput,
+                  "ks256Attestation",
+                ),
+              }
+            : {}),
+          ...(args.ks256Attestations !== undefined
+            ? {
+                ks256Attestations: (
+                  args.ks256Attestations as BytesInput[]
+                ).map((a, i) => resolveBytes(a, `ks256Attestations[${i}]`)),
+              }
+            : {}),
         });
         return verifyResult("verify", result);
       } catch (err) {
@@ -192,7 +228,7 @@ export function createServer(): McpServer {
   );
 
   server.registerTool(
-    "verify_grant_receipt",
+    TOOL_NAMES[1],
     {
       title: "Verify a grant receipt",
       description:
@@ -200,7 +236,9 @@ export function createServer(): McpServer {
         "(Forestrie-Grant COSE Sign1, or raw grant payload CBOR plus an " +
         "entry id), at a trust root you choose. Mirrors " +
         "`forestrie verify-grant`. This is the tool that answers the " +
-        "append-authority question: the leaf IS the grant.",
+        "append-authority question: the leaf IS the grant. KS256 contract " +
+        "roots take an optional ks256Attestation (fetched elsewhere; this " +
+        "tool never calls the chain; several go in ks256Attestations).",
       inputSchema: verifyGrantReceiptInputShape,
       outputSchema: verifyOutputShape,
       annotations,
@@ -215,6 +253,21 @@ export function createServer(): McpServer {
           ),
           ...(args.entryId !== undefined ? { entryId: args.entryId } : {}),
           trust: resolveRoot(args.trust as TrustRootInput),
+          ...(args.ks256Attestation !== undefined
+            ? {
+                ks256Attestation: resolveBytes(
+                  args.ks256Attestation as BytesInput,
+                  "ks256Attestation",
+                ),
+              }
+            : {}),
+          ...(args.ks256Attestations !== undefined
+            ? {
+                ks256Attestations: (
+                  args.ks256Attestations as BytesInput[]
+                ).map((a, i) => resolveBytes(a, `ks256Attestations[${i}]`)),
+              }
+            : {}),
         });
         return verifyResult("verify-grant", result);
       } catch (err) {
@@ -225,7 +278,7 @@ export function createServer(): McpServer {
   );
 
   server.registerTool(
-    "decode_receipt",
+    TOOL_NAMES[2],
     {
       title: "Decode a receipt to JSON",
       description:
@@ -280,7 +333,7 @@ export function createServer(): McpServer {
   );
 
   server.registerTool(
-    "verify_self",
+    TOOL_NAMES[3],
     {
       title: "Verify this package's own release registration",
       description:
@@ -317,13 +370,173 @@ export function createServer(): McpServer {
   );
 
   registerFixtureResources(server);
+  registerDerivedGoldenResources(server);
+  registerLaneAResources(server);
   registerSelfResources(server);
   return server;
 }
 
+/** Register one text or binary resource under `forestrie://fixtures/`. */
+function registerFixtureResource(
+  server: McpServer,
+  rel: string,
+  meta: { title: string; description: string; mimeType: string },
+  read: () => { text: string } | { blob: Uint8Array },
+): void {
+  const uri = `forestrie://fixtures/${rel}`;
+  server.registerResource(rel, uri, meta, async () => {
+    const value = read();
+    return {
+      contents: [
+        "text" in value
+          ? { uri, mimeType: meta.mimeType, text: value.text }
+          : {
+              uri,
+              mimeType: meta.mimeType,
+              blob: Buffer.from(value.blob).toString("base64"),
+            },
+      ],
+    };
+  });
+}
+
+/**
+ * The two inputs a client could not construct from the golden resources
+ * alone — the committed grant, rebuilt from `manifest.json` at read time
+ * exactly as `goldenCommittedGrant()` does (never a ninth frozen file, so
+ * the manifest stays the single source of truth), and the entry id — plus
+ * the burial chain's root key as base64, so `checkpoint-chain` can be
+ * driven from resources (the manifest carries it as hex, and byte inputs
+ * take base64 or a path). With these, `verify_grant_receipt` reaches a
+ * pass from bundled resources only; the README names the call.
+ */
+function registerDerivedGoldenResources(server: McpServer): void {
+  registerFixtureResource(
+    server,
+    "golden/committed-grant.cbor",
+    {
+      title: "Golden committed grant (derived)",
+      description:
+        "The committed grant the golden receipt's leaf commits, as raw Forestrie-Grant v0 payload CBOR — rebuilt from golden/manifest.json at read time. verify_grant_receipt's committedGrant input; pair with golden/grant-receipt.cbor, golden/entry-id.txt and golden/grant-genesis.cbor.",
+      mimeType: "application/cbor",
+    },
+    () => ({ blob: goldenCommittedGrant() }),
+  );
+  registerFixtureResource(
+    server,
+    "golden/entry-id.txt",
+    {
+      title: "Golden entry id (derived)",
+      description:
+        "32 lowercase hex, idtimestamp_be8 || mmrIndex_be8, for the golden grant receipt — from golden/manifest.json. verify_grant_receipt's entryId.",
+      mimeType: "text/plain",
+    },
+    () => ({ text: goldenEntryId() }),
+  );
+  registerFixtureResource(
+    server,
+    "golden/burial/public-key.xy.b64",
+    {
+      title: "Burial-bundle root key, base64 (derived)",
+      description:
+        "The retained checkpoint chain's root key, P-256 x||y, as standard base64 — the manifest carries it as hex, and byte inputs take base64 or a path. checkpoint-chain's keyXy: pass its text as {b64}.",
+      mimeType: "text/plain",
+    },
+    () => ({
+      text: Buffer.from(fromHex(BURIAL_MANIFEST.publicKeyXyHex)).toString(
+        "base64",
+      ),
+    }),
+  );
+}
+
+/** Which lane-A bundle files are text vs binary, and their mime type. */
+const LANE_A_KINDS: Record<
+  (typeof LANE_A_FILES)[number],
+  { mimeType: string; text: boolean; title: string; description: string }
+> = {
+  "receipt.cbor": {
+    mimeType: "application/cbor",
+    text: false,
+    title: "Lane-A receipt",
+    description:
+      "A real receipt from a public lane (@forestrie/mcp-verify 0.4.0's own release registration). verify_receipt's receipt.",
+  },
+  "statement.cose": {
+    mimeType: "application/cbor",
+    text: false,
+    title: "Lane-A signed statement",
+    description:
+      "The exact registered payload that receipt commits. verify_receipt's payload.",
+  },
+  "entry-id.txt": {
+    mimeType: "text/plain",
+    text: true,
+    title: "Lane-A entry id",
+    description: "verify_receipt's entryId for the lane-A receipt.",
+  },
+  "log-key.xy.b64": {
+    mimeType: "text/plain",
+    text: true,
+    title: "Lane-A log owner key, base64",
+    description:
+      "The publications log owner's public key, P-256 x||y, base64 text. known-log-key's keyXy: pass its text as {b64}.",
+  },
+  "genesis.cbor": {
+    mimeType: "application/cbor",
+    text: false,
+    title: "Lane-A forest genesis",
+    description:
+      "The forest's genesis document (chain 84532, univocity 0x6787…f0ca). Under the genesis root this receipt reports delegation_invalid: its log is a grandchild (docs/self-registration.md).",
+  },
+  "accumulator.cbor": {
+    mimeType: "application/cbor",
+    text: false,
+    title: "Lane-A published accumulator (chain read, block 46770471)",
+    description:
+      "encodeKnownAccumulator snapshot of the log's state the univocity contract published (size 11), captured by an independent chain read. known-accumulator's accumulator: with the lane-A receipt, statement and entry id, verify_receipt passes with split-view ok, offline, against a real anchor.",
+  },
+};
+
+/**
+ * `fixtures/lane-a/` as `forestrie://fixtures/lane-a/…` resources: the
+ * one shipped pair — a real receipt and the real accumulator the chain
+ * published for its log — under which an accumulator root runs offline
+ * against an independent anchor. See fixtures/lane-a/PROVENANCE.md.
+ */
+function registerLaneAResources(server: McpServer): void {
+  for (const name of LANE_A_FILES) {
+    const kind = LANE_A_KINDS[name];
+    registerFixtureResource(
+      server,
+      `lane-a/${name}`,
+      {
+        title: kind.title,
+        description: kind.description,
+        mimeType: kind.mimeType,
+      },
+      () =>
+        kind.text
+          ? { text: new TextDecoder().decode(readFixture(`lane-a/${name}`)) }
+          : { blob: readFixture(`lane-a/${name}`) },
+    );
+  }
+  registerFixtureResource(
+    server,
+    "lane-a/manifest.json",
+    {
+      title: "Lane-A bundle manifest",
+      description:
+        "sha256 of every lane-A file, plus the coordinates: base URL, bootstrap and publications log ids, entry id, massif height, content hash, chain id, univocity address, and the accumulator's block and size.",
+      mimeType: "application/json",
+    },
+    () => ({ text: JSON.stringify(LANE_A_MANIFEST, null, 2) }),
+  );
+}
+
 /**
  * The bundled golden vectors as MCP resources, so an agent can run the demo
- * with no inputs of its own (D2). `registerSelfResources` below covers the
+ * with no inputs of its own. `registerSelfResources` below covers the
  * `forestrie://self/…` namespace, previously reserved but unregistered.
  */
 function registerFixtureResources(server: McpServer): void {
@@ -417,7 +630,7 @@ const SELF_FIXTURE_KINDS: Record<string, { mimeType: string; text: boolean }> =
  * `fixtures/self/` as `forestrie://self/…` MCP resources, when the bundle is
  * present — never when it is not (an unregistered namespace beats one that
  * resolves to nothing, `test/node/mcp-smoke.test.ts`). `fixtures/self/` is
- * generated and gitignored (plan-2609-02 step 2.3), so this is normally a
+ * generated and gitignored, so this is normally a
  * no-op outside a release checkout.
  */
 function registerSelfResources(server: McpServer): void {
@@ -432,7 +645,7 @@ function registerSelfResources(server: McpServer): void {
         title: `Self-registration bundle: ${name}`,
         description:
           "This package's own release-time self-registration artefact " +
-          "(plan-2609-02 step 2.3) — what verify_self / verify --self " +
+          "— what verify_self / verify --self " +
           "checks. See docs/self-registration.md.",
         mimeType: kind.mimeType,
       },

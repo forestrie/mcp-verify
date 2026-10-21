@@ -5,7 +5,7 @@
  *
  * The script lives under `scripts/`, not `src/`, so it is exercised directly
  * via dynamic import rather than through the package's public surface. It
- * still runs inside the unit project's forbidden-fetch setup (D2(b)); the
+ * still runs inside the unit project's forbidden-fetch setup; the
  * dry-run path proves it never calls the real `fetch`.
  */
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -100,7 +100,7 @@ describe("selfRegister --dry-run", () => {
         builtAt: expect.any(String),
       }),
     );
-    // D4: serverJsonSha256 is deferred to phase 3 — must NOT appear yet.
+    // provenance.json does not bind server.json: no serverJsonSha256.
     expect(provenance).not.toHaveProperty("serverJsonSha256");
 
     const manifest = JSON.parse(

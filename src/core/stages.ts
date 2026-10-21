@@ -1,8 +1,7 @@
 /**
  * Port of `forestrie-cli/src/lib/verify-report.ts:113-142`. The `--json`
- * stage shape is a load-bearing contract — the reference CLI's own CI asserts
- * it — so this is a port, not an adaptation. `test/differential/` compares
- * the output of this function against the CLI's byte for byte.
+ * stage shape is a load-bearing contract — the CLI's own CI asserts it — so
+ * this is a port, not an adaptation.
  */
 import type { ReceiptVerifyResult } from "@forestrie/receipt-verify";
 import type { ReceiptVerifyStage, StageRow } from "./result.js";
@@ -20,14 +19,14 @@ export const VERIFY_STAGES: readonly ReceiptVerifyStage[] = [
 
 /** One line per stage: what a human reads at every step. */
 export const STAGE_NARRATION: Record<ReceiptVerifyStage, string> = {
-  parse: "receipt COSE decodes; genesis trust root loads (ES256)",
+  parse: "receipt COSE decodes; genesis trust root loads (ES256 or KS256)",
   signature: "checkpoint signature verifies under the genesis trust key",
   inclusion: "proof path recomputes the checkpoint peak",
   binding: "leaf commits the payload (SHA-256) at the receipt idtimestamp",
 };
 
 export const KNOWN_KEY_PARSE_REASON =
-  "receipt COSE decodes; caller-known log key loads (ES256)";
+  "receipt COSE decodes; caller-known log key loads (ES256 key or KS256 address)";
 export const KNOWN_KEY_SIGNATURE_REASON =
   "verifies under caller-known log key (not genesis-derived)";
 
@@ -51,7 +50,7 @@ export const ANCHORED_SIGNATURE_REASON =
  *
  * A stage this package does not know (a future `@forestrie/receipt-verify`
  * addition) still renders explicitly as the failed row — degrading it to four
- * silent "skipped" rows would HIDE the failure (F3, plan-2607-14 W1.3). We
+ * silent "skipped" rows would HIDE the failure. We
  * cannot order an unknown stage among the known ones, so the known stages
  * read "skipped" (not evaluated by this package's knowledge) and the unknown
  * stage carries the failure. Do not "simplify" this branch away.
@@ -87,7 +86,7 @@ export function stageRows(result: ReceiptVerifyResult): StageRow[] {
   });
 }
 
-/** Stage rows for a run anchored on a caller-known log key (FOR-297 D1). */
+/** Stage rows for a run anchored on a caller-known log key. */
 export function knownKeyStageRows(result: ReceiptVerifyResult): StageRow[] {
   return stageRows(result).map((row) => {
     if (row.status !== "ok") return row;

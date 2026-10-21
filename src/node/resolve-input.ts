@@ -4,9 +4,9 @@
  * package's own bundled fixtures.
  *
  * This module validates aggressively and errors clearly, and that is a
- * deliberate response to the reference implementation: `forestrie verify-grant`
+ * deliberate response to the `forestrie` CLI: `forestrie verify-grant`
  * crashes with an uncaught stack trace when a required argument is missing,
- * even under `--json` (plan-2609-02 "What changed on contact" 3). An MCP tool
+ * even under `--json`. An MCP tool
  * that did the same would hand an agent a stack trace where it expected a
  * tool error. So the MCP layer validates its own inputs rather than trusting
  * the reference to fail cleanly.
@@ -21,8 +21,12 @@ export class InputError extends Error {
   }
 }
 
-/** Bytes cross the MCP boundary as base64; stdio additionally accepts a path. */
-export type BytesInput = { b64: string } | { path: string };
+/** Bytes cross the MCP boundary as base64 — `b64`, or its alias `base64`
+ *  (the name `@forestrie/mcp-resolve` documented first; accepted here
+ *  permanently so a caller who learned either server's shape is not
+ *  turned away by the other) — and stdio additionally accepts a path. */
+export type BytesInput =
+  { b64: string } | { base64: string } | { path: string };
 
 /**
  * Strict base64. `Buffer.from(s, "base64")` silently ignores anything it does
@@ -30,16 +34,20 @@ export type BytesInput = { b64: string } | { path: string };
  * and then fails much later as `receipt_malformed` — a verification-shaped
  * error for what is really a typo. Reject the input here instead.
  */
-function decodeBase64(value: string, what: string): Uint8Array {
+function decodeBase64(
+  value: string,
+  what: string,
+  key: "b64" | "base64",
+): Uint8Array {
   const trimmed = value.trim();
   if (!/^[A-Za-z0-9+/]*={0,2}$/.test(trimmed) || trimmed.length === 0) {
     throw new InputError(
-      `${what}.b64 is not valid base64 (standard alphabet, optional '=' padding)`,
+      `${what}.${key} is not valid base64 (standard alphabet, optional '=' padding)`,
     );
   }
   const bytes = new Uint8Array(Buffer.from(trimmed, "base64"));
   if (bytes.length === 0) {
-    throw new InputError(`${what}.b64 decoded to 0 bytes`);
+    throw new InputError(`${what}.${key} decoded to 0 bytes`);
   }
   // Round-trip guard: catches truncated / mis-padded input that Buffer would
   // otherwise accept by discarding the incomplete trailing group.
@@ -48,7 +56,7 @@ function decodeBase64(value: string, what: string): Uint8Array {
     trimmed.replace(/=+$/, "")
   ) {
     throw new InputError(
-      `${what}.b64 is not canonical base64 (it does not round-trip)`,
+      `${what}.${key} is not canonical base64 (it does not round-trip)`,
     );
   }
   return bytes;
@@ -56,7 +64,10 @@ function decodeBase64(value: string, what: string): Uint8Array {
 
 export function resolveBytes(input: BytesInput, what = "input"): Uint8Array {
   if ("b64" in input) {
-    return decodeBase64(input.b64, what);
+    return decodeBase64(input.b64, what, "b64");
+  }
+  if ("base64" in input) {
+    return decodeBase64(input.base64, what, "base64");
   }
   if (input.path.trim() === "") {
     throw new InputError(`${what}.path is empty`);
@@ -80,7 +91,12 @@ export function resolveBytes(input: BytesInput, what = "input"): Uint8Array {
 /** The wire form of a trust root: the same union, with bytes as BytesInput. */
 export type TrustRootInput =
   | { root: "genesis"; genesis: BytesInput }
-  | { root: "known-log-key"; keyXy: BytesInput }
+  | {
+      root: "known-log-key";
+      keyXy?: BytesInput;
+      ks256Address?: string;
+      forestGenesis?: BytesInput;
+    }
   | {
       root: "known-accumulator";
       accumulator: BytesInput;
@@ -106,11 +122,34 @@ export function resolveRoot(input: TrustRootInput): TrustRoot {
         root: "genesis",
         genesis: resolveBytes(input.genesis, "trust.genesis"),
       };
-    case "known-log-key":
-      return {
-        root: "known-log-key",
-        keyXy: resolveBytes(input.keyXy, "trust.keyXy"),
-      };
+    case "known-log-key": {
+      if ((input.keyXy === undefined) === (input.ks256Address === undefined)) {
+        throw new InputError(
+          "known-log-key takes exactly one of trust.keyXy (64-byte P-256 x||y) or trust.ks256Address (0x + 40 hex)",
+        );
+      }
+      const out: TrustRoot = { root: "known-log-key" };
+      if (input.keyXy !== undefined) {
+        out.keyXy = resolveBytes(input.keyXy, "trust.keyXy");
+      }
+      if (input.ks256Address !== undefined) {
+        if (!/^0x[0-9a-fA-F]{40}$/.test(input.ks256Address)) {
+          throw new InputError(
+            "trust.ks256Address must be 0x followed by 40 hex digits",
+          );
+        }
+        out.ks256Address = new Uint8Array(
+          Buffer.from(input.ks256Address.slice(2), "hex"),
+        );
+      }
+      if (input.forestGenesis !== undefined) {
+        out.forestGenesis = resolveBytes(
+          input.forestGenesis,
+          "trust.forestGenesis",
+        );
+      }
+      return out;
+    }
     case "known-accumulator": {
       const out: TrustRoot = {
         root: "known-accumulator",

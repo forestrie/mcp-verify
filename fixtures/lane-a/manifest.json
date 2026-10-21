@@ -1,0 +1,23 @@
+{
+  "comment": "lane-A anchored bundle \u2014 FROZEN bytes; see PROVENANCE.md. A real receipt from a public lane and the real accumulator the chain published, so an accumulator root runs offline against an independent anchor.",
+  "capturedAt": "2026-09-13",
+  "baseUrl": "https://api-a.forest-2.forestrie.dev",
+  "bootstrapLogId": "67876864-3b46-67ae-dcb3-13cc81624aa5",
+  "logId": "e8345800-a747-4e62-9409-61622b836f1f",
+  "entryId": "a09a6337ee0009000000000000000008",
+  "massifHeight": 14,
+  "contentHashSha256": "7c29bb57bae35044f722f4842c91a38b6fae51a5405a95caf9b27c9b894e2166",
+  "chainId": 84532,
+  "univocity": "0x678768643b4667aedcb313cc81624aa560b7f0ca",
+  "accumulatorBlockNumber": 46770471,
+  "accumulatorBlockHash": "0x713c531b734b5c1edb5c89e0182fdd6b52d0b9c80fd2bf0a395847b39091e170",
+  "accumulatorSize": 11,
+  "files": {
+    "accumulator.cbor": "e5b97e321ae288141ec14aa5f0a354219d509d3f21f89dbdfad2fd9f2b2316f5",
+    "entry-id.txt": "c12681c1612411b1e88a1260a8902e3aee2d37fcb9a6180a88a6605dd9ad6d7e",
+    "genesis.cbor": "c6183184d805bf23652a265d7f533101eec5c97e1939dd90c7f142e6d502da68",
+    "log-key.xy.b64": "b48749628f1b20c8bd822fc317a36da4709fafc92849658973aa5743baf811c7",
+    "receipt.cbor": "55e7edf2a65c39681cb01fc1d6b5b6bf9273b82bd741954be63c8d6f2ef85fbe",
+    "statement.cose": "7c29bb57bae35044f722f4842c91a38b6fae51a5405a95caf9b27c9b894e2166"
+  }
+}
