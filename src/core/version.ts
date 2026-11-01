@@ -11,11 +11,11 @@
  */
 
 /** Keep in sync with package.json#version. Asserted by test/node/mcp-smoke. */
-export const PACKAGE_VERSION = "0.7.0";
+export const PACKAGE_VERSION = "0.8.0";
 
 /** Keep in sync with package.json#dependencies["@forestrie/receipt-verify"].
  *  Asserted by test/core/verify-grant-receipt.test.ts. */
-export const RECEIPT_VERIFY_VERSION = "3.2.0";
+export const RECEIPT_VERIFY_VERSION = "3.3.0";
 
 /** Keep in sync with package.json#dependencies["@forestrie/encoding"]. */
-export const ENCODING_VERSION = "0.9.1";
+export const ENCODING_VERSION = "0.10.0";

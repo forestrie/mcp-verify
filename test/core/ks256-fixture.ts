@@ -172,8 +172,8 @@ export async function buildKs256Fixture(
   const tbs = buildDelegationToBeSignedKs256(
     {
       logIdHex32: LOG_ID_HEX32,
-      mmrStart: 0,
-      mmrEnd: 65535,
+      mmrStart: 0n,
+      mmrEnd: 65535n,
       delegatedPublicKeyCbor: encodeCborDeterministic(
         new Map<number, unknown>([
           [1, 2],
@@ -312,8 +312,8 @@ export function buildContractCert(
   const tbs = buildDelegationToBeSignedKs256(
     {
       logIdHex32: LOG_ID_HEX32,
-      mmrStart: 0,
-      mmrEnd: 65535,
+      mmrStart: 0n,
+      mmrEnd: 65535n,
       delegatedPublicKeyCbor: encodeCborDeterministic(
         new Map<number, unknown>([
           [1, 2],
