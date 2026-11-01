@@ -90,7 +90,7 @@ declares no window and is not checked, as in receipt-verify. Once either
 range label is present the window must be complete and well formed: both
 labels uint64 with `mmrStart <= mmrEnd`, and labels 8 and 9 (`issuedAt`,
 `expiresAt`) non-negative integers. Anything else breaks the link with
-**`delegation_range_malformed`** (since 0.8.0, receipt-verify 3.3.0; 0.7.x
+**`delegation_range_malformed`** (since 0.8.1, receipt-verify 3.3.0; 0.7.x
 treated a partial window as no limits).
 
 Ordering: the size bound needs only signed data, so it is judged while the
@@ -239,7 +239,11 @@ network — is excluded from this package **by construction**. There is no
 branch for it, and a CI gate bundles the core for `platform: "browser"` and
 fails on any edge to a node builtin, let alone a socket.
 
-## 0.8.0 changes
+## 0.8.1 changes
+
+0.8.0 was tagged but never reached npm (its release-time
+self-registration used a forestrie-cli that the delegation coordinator
+now refuses); 0.8.1 is the same library change.
 
 Upgrading from 0.7.x, with `@forestrie/receipt-verify` 3.3.0
 (`@forestrie/encoding` 0.10.0, `@forestrie/merklelog` 0.6.0):
