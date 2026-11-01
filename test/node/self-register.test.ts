@@ -147,8 +147,8 @@ describe("selfRegister delegate step", () => {
               logId: args[args.indexOf("--log-id") + 1],
               sealerId: "sealer-1",
               epoch: 3,
-              mmrStart: 0,
-              mmrEnd: 42,
+              mmrStart: "0",
+              mmrEnd: "42",
               expiresAt: "2026-09-14T00:00:00.000Z",
             }),
             stderr: "",
@@ -184,7 +184,7 @@ describe("selfRegister delegate step", () => {
     expect(delegateArgs).toContain("--json");
   });
 
-  it("logs the returned expiresAt and mmrEnd", async () => {
+  it("logs the returned expiresAt and the exact decimal mmrEnd, above 2^53", async () => {
     const logs: string[] = [];
     await selfRegister({
       dryRun: true,
@@ -196,7 +196,7 @@ describe("selfRegister delegate step", () => {
             status: 0,
             stdout: JSON.stringify({
               expiresAt: "2026-09-14T00:00:00.000Z",
-              mmrEnd: 12345,
+              mmrEnd: "9007199254740999",
             }),
             stderr: "",
           };
@@ -218,7 +218,7 @@ describe("selfRegister delegate step", () => {
       logs.some(
         (l) =>
           l.includes("expiresAt=2026-09-14T00:00:00.000Z") &&
-          l.includes("mmrEnd=12345"),
+          l.includes("mmrEnd=9007199254740999"),
       ),
     ).toBe(true);
   });
@@ -286,7 +286,7 @@ describe("selfRegister failure paths", () => {
               status: 0,
               stdout: JSON.stringify({
                 expiresAt: "2026-09-14T00:00:00.000Z",
-                mmrEnd: 1,
+                mmrEnd: "1",
               }),
               stderr: "",
             };
@@ -347,7 +347,7 @@ describe("selfRegister failure paths", () => {
               status: 0,
               stdout: JSON.stringify({
                 expiresAt: "2026-09-14T00:00:00.000Z",
-                mmrEnd: 1,
+                mmrEnd: "1",
               }),
               stderr: "",
             };

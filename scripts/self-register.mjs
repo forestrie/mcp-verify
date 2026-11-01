@@ -241,8 +241,10 @@ function stubRunCli(_bin, args) {
         logId: flag("--log-id"),
         sealerId: "dry-run-sealer",
         epoch: 0,
-        mmrStart: 0,
-        mmrEnd: 9007199254740991,
+        // forestrie-cli >= 0.14.0 prints range bounds as canonical
+        // decimal uint64 strings, never JSON numbers.
+        mmrStart: "0",
+        mmrEnd: "9007199254740991",
         expiresAt: "1970-01-01T00:00:00.000Z",
       }),
       stderr: "",
