@@ -85,8 +85,13 @@ legitimately signed a few seconds after the leaf it covers, so
 signed size, not on the receipt's leaf: a leaf below `mmrStart` can
 legitimately sit in a checkpoint above it.)
 
-A certificate without all of labels 3, 4, 8 and 9 carries no checkable
-limits and is not checked, as in receipt-verify.
+A certificate with neither label 3 (`mmrStart`) nor label 4 (`mmrEnd`)
+declares no window and is not checked, as in receipt-verify. Once either
+range label is present the window must be complete and well formed: both
+labels uint64 with `mmrStart <= mmrEnd`, and labels 8 and 9 (`issuedAt`,
+`expiresAt`) non-negative integers. Anything else breaks the link with
+**`delegation_range_malformed`** (since 0.8.0, receipt-verify 3.3.0; 0.7.x
+treated a partial window as no limits).
 
 Ordering: the size bound needs only signed data, so it is judged while the
 chain folds. Expiry needs the receipt's leaf, so it is judged only AFTER the
@@ -233,6 +238,19 @@ The `rpc` mode the `forestrie` CLI offers — the only one that touches the
 network — is excluded from this package **by construction**. There is no
 branch for it, and a CI gate bundles the core for `platform: "browser"` and
 fails on any edge to a node builtin, let alone a socket.
+
+## 0.8.0 changes
+
+Upgrading from 0.7.x, with `@forestrie/receipt-verify` 3.3.0
+(`@forestrie/encoding` 0.10.0, `@forestrie/merklelog` 0.6.0):
+
+- **Delegation MMR ranges are uint64.** Certificate range bounds decode as
+  `bigint`, so a range above 2^53 is checked exactly.
+- **A partial delegation window breaks the chain.** A certificate carrying
+  only one of labels 3/4, a range label that is not a uint64,
+  `mmrStart > mmrEnd`, or labels 8/9 missing beside a range now fails
+  `delegation_range_malformed` at `stage=signature`. 0.7.x treated it as
+  carrying no limits.
 
 ## 0.7.0 changes
 

@@ -77,7 +77,9 @@ describe("checkpoint-chain: delegation limits per link", () => {
     expect(r.ok).toBe(true);
   });
 
-  it("a partial limit set (label 4 only) is treated as no limits, as receipt-verify does", async () => {
+  it("a partial limit set (label 4 only) breaks the link, as receipt-verify does", async () => {
+    // receipt-verify >= 3.3.0: once either range label is present the window
+    // must be complete; a malformed window never passes as "no window".
     const fx = await fixture();
     const root = await newEs256Root();
     const cert = await buildEs256Cert(root, fx, { mmrEnd: 0n });
@@ -86,7 +88,10 @@ describe("checkpoint-chain: delegation limits per link", () => {
       checkpoints: [await coveringLink(fx, cert)],
       keyXy: root.keyXy,
     });
-    expect(r.ok).toBe(true);
+    expect(r.ok).toBe(false);
+    expect(r.failedLink).toBe(0);
+    expect(r.stage).toBe("signature");
+    expect(r.reason).toBe("delegation_range_malformed");
   });
 
   it("rejects a link whose signed size runs past mmrEnd with delegation_out_of_range", async () => {
